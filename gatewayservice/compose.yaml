@@ -1,0 +1,32 @@
+services:
+  gateway-service:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.local
+    depends_on:
+      - gateway-db
+      - redis
+
+  gateway-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: gatewaydb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - gateway-db-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  gateway-db-data:
+
+
+

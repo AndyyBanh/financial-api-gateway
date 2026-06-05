@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: gatewayservice
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    database: POSTGRESQL
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: 6379
+  config:
+    import: optional:file:.env.local[.properties]
+
+server:
+  port: 8080
+
+
