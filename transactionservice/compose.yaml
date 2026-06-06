@@ -1,0 +1,23 @@
+services:
+  transaction-service:
+    build: .
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env.local
+    depends_on:
+      - transaction-db
+
+  transaction-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: transactiondb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - transaction-db-data:/var/lib/postgres/data
+
+volumes:
+  transaction-db-data:
