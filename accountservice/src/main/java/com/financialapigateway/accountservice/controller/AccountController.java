@@ -23,21 +23,21 @@ public class AccountController {
 
     @PostMapping
     public ResponseEntity<AccountResponse> createAccount(@RequestBody AccountDto input) {
-        return null;
+        return ResponseEntity.ok(this.accountService.createAccount(input));
     }
 
     @GetMapping("/{accountId}")
     public ResponseEntity<AccountResponse> getAccountByAccountId(@PathVariable UUID accountId) {
-        return null;
+        return ResponseEntity.ok(this.accountService.getAccountById(accountId));
     }
 
-    @GetMapping()
+    @GetMapping(params = "accountNumber")
     public ResponseEntity<AccountResponse> getAccountByAccountNumber(@RequestParam String accountNumber) {
-        return null;
+        return ResponseEntity.ok(this.accountService.getAccountByAccountNumber(accountNumber));
     }
 
-    @GetMapping()
+    @GetMapping(params = "userId")
     public ResponseEntity<List<AccountResponse>> getAccountsByUserId(@RequestParam UUID userId) {
-        return null;
+        return ResponseEntity.ok(this.accountService.getAllAccountsByUserId(userId));
     }
 }

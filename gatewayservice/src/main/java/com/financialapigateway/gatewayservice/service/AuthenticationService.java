@@ -19,6 +19,8 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.LocalDateTime;
+
 @Service
 public class AuthenticationService {
 
@@ -43,7 +45,7 @@ public class AuthenticationService {
     public Mono<RegisterUserResponse> register(RegisterUserDto input) {
         return checkIfUserExist(input.getEmail())
                 .then(Mono.defer(() -> createUser(input)))
-                .map(userEntity -> new RegisterUserResponse(userEntity.getId(), userEntity.getEmail()));
+                .map(userEntity -> new RegisterUserResponse(userEntity.getUserId(), userEntity.getEmail()));
     }
 
 
@@ -63,6 +65,7 @@ public class AuthenticationService {
             userEntity.setEmail(input.getEmail());
             userEntity.setPassword(passwordEncoder.encode(input.getPassword()));
             userEntity.setRole(Role.USER);
+            userEntity.setCreatedAt(LocalDateTime.now());
             this.userRepository.save(userEntity);
             return userEntity;
         }).subscribeOn(Schedulers.boundedElastic());

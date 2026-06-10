@@ -10,6 +10,6 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RegisterUserResponse {
-    private UUID id;
+    private UUID userId;
     private String email;
 }

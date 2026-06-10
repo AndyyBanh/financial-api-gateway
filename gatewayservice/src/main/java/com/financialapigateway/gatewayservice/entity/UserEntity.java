@@ -16,7 +16,7 @@ public class UserEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+    private UUID userId;
     @Column(unique = true, nullable = false)
     private String email;
     @Column(nullable = false)
