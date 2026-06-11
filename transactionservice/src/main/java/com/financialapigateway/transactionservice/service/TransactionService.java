@@ -42,8 +42,7 @@ public class TransactionService {
         if (status == null) {
             transactions = this.transactionRepository.findBySenderIdOrRecipientId(accountNumber, accountNumber);
         } else {
-            transactions = this.transactionRepository.findAllBySenderIdOrRecipientIdAndStatus(
-                    accountNumber, accountNumber, status);
+            transactions = this.transactionRepository.findByAccountNumberAndStatus(accountNumber, status);
         }
         return transactions.stream()
                 .map(this::mapToResponse)
