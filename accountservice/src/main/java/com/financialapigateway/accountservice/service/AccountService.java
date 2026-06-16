@@ -2,6 +2,7 @@ package com.financialapigateway.accountservice.service;
 
 import com.financialapigateway.accountservice.dto.AccountDto;
 import com.financialapigateway.accountservice.entity.Account;
+import com.financialapigateway.accountservice.event.TransactionEvent;
 import com.financialapigateway.accountservice.exceptions.AccountNotFoundException;
 import com.financialapigateway.accountservice.repository.AccountRepository;
 import com.financialapigateway.accountservice.response.AccountResponse;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
@@ -51,6 +53,31 @@ public class AccountService {
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
+
+    // Don't handle exceptions because Kafka will keep infinite retry
+    public void processTransaction(TransactionEvent event) {
+        Optional<Account> senderAcc = this.accountRepository.findByAccountNumber(event.getSenderId());
+        Optional<Account> receiverAcc = this.accountRepository.findByAccountNumber(event.getRecipientId());
+
+        if (senderAcc.isEmpty() || receiverAcc.isEmpty()) {
+            // Publish event to topic: transaction-result failed
+        }
+
+        Account sender = senderAcc.get();
+        Account receiver = receiverAcc.get();
+
+        if (sender.getBalance() < event.getAmount()) {
+            // Publish event to topic: transaction-result failed
+        }
+
+        sender.setBalance(sender.getBalance() - event.getAmount());
+        receiver.setBalance(receiver.getBalance() + event.getAmount());
+        this.accountRepository.save(sender);
+        this.accountRepository.save(receiver);
+        // Publish event to topic: transaction-result success
+
+    }
+
 
     private Account mapToEntity(AccountDto accountDto) {
         Account account = new Account();

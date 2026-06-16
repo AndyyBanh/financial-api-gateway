@@ -1,3 +1,7 @@
+general:
+  kafka-topic:
+    transactions: transactions
+
 spring:
   application:
     name: accountservice
@@ -12,6 +16,17 @@ spring:
     hibernate:
       ddl-auto: update
     database-platform: org.hibernate.dialect.PostgreSQLDialect
+  kafka:
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+      group-id: account-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
   config:
     import: optional:file:.env.local[.properties]
 server:
