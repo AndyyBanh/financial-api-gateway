@@ -3,7 +3,9 @@ package com.financialapigateway.transactionservice.service;
 import com.financialapigateway.transactionservice.dto.TransactionDto;
 import com.financialapigateway.transactionservice.entity.Transaction;
 import com.financialapigateway.transactionservice.enumeration.Status;
+import com.financialapigateway.transactionservice.event.TransactionEvent;
 import com.financialapigateway.transactionservice.exceptions.TransactionNotFoundException;
+import com.financialapigateway.transactionservice.kafka.TransactionProducer;
 import com.financialapigateway.transactionservice.repository.TransactionRepository;
 import com.financialapigateway.transactionservice.response.TransactionResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,16 +20,20 @@ import java.util.stream.Collectors;
 public class TransactionService {
 
     private final TransactionRepository transactionRepository;
+    private final TransactionProducer transactionProducer;
 
     @Autowired
-    public TransactionService(TransactionRepository transactionRepository) {
+    public TransactionService(TransactionRepository transactionRepository,  TransactionProducer transactionProducer) {
         this.transactionRepository = transactionRepository;
+        this.transactionProducer = transactionProducer;
     }
 
     // exception handled in mapToEntity method
     public TransactionResponse createTransaction(TransactionDto input) {
         Transaction transaction = mapToEntity(input);
         this.transactionRepository.save(transaction);
+        TransactionEvent transactionEvent = mapToEvent(transaction);
+        this.transactionProducer.send(transactionEvent);
         return mapToResponse(transaction);
     }
 
@@ -72,4 +78,14 @@ public class TransactionService {
         return response;
     }
 
+    private TransactionEvent mapToEvent(Transaction input) {
+        TransactionEvent event = new TransactionEvent();
+        event.setTransactionId(input.getTransactionId());
+        event.setAmount(input.getAmount());
+        event.setSenderId(input.getSenderId());
+        event.setRecipientId(input.getRecipientId());
+        event.setCreatedAt(input.getCreatedAt());
+        event.setStatus(input.getStatus());
+        return event;
+    }
 }
