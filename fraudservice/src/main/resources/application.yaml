@@ -1,3 +1,10 @@
+general:
+  kafka-topic:
+    transactions: transactions
+
+fraud:
+  large-amount-threshold: 10000
+
 spring:
   application:
     name: fraudservice
@@ -12,6 +19,15 @@ spring:
     hibernate:
       ddl-auto: update
     database-platform: org.hibernate.dialect.PostgreSQLDialect
+  kafka:
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      group-id: fraud-group
+      properties:
+        spring.json.trusted.packages: "*"
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
   config:
     import: optional:file:.env.local[.properties]
 
