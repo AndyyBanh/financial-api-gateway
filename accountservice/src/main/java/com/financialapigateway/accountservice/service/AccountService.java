@@ -2,8 +2,11 @@ package com.financialapigateway.accountservice.service;
 
 import com.financialapigateway.accountservice.dto.AccountDto;
 import com.financialapigateway.accountservice.entity.Account;
+import com.financialapigateway.accountservice.enumeration.Status;
 import com.financialapigateway.accountservice.event.TransactionEvent;
+import com.financialapigateway.accountservice.event.TransactionResultEvent;
 import com.financialapigateway.accountservice.exceptions.AccountNotFoundException;
+import com.financialapigateway.accountservice.kafka.TransactionResultProducer;
 import com.financialapigateway.accountservice.repository.AccountRepository;
 import com.financialapigateway.accountservice.response.AccountResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,9 +24,12 @@ public class AccountService {
 
     private final AccountRepository accountRepository;
 
+    private final TransactionResultProducer transactionResultProducer;
+
     @Autowired
-    public AccountService(AccountRepository accountRepository) {
+    public AccountService(AccountRepository accountRepository, TransactionResultProducer transactionResultProducer) {
         this.accountRepository = accountRepository;
+        this.transactionResultProducer = transactionResultProducer;
     }
 
     public AccountResponse createAccount(AccountDto input) {
@@ -60,22 +66,27 @@ public class AccountService {
         Optional<Account> receiverAcc = this.accountRepository.findByAccountNumber(event.getRecipientId());
 
         if (senderAcc.isEmpty() || receiverAcc.isEmpty()) {
-            // Publish event to topic: transaction-result failed
+            TransactionResultEvent transactionResultEvent = mapToEvent(event, Status.FAILED);
+            this.transactionResultProducer.send(transactionResultEvent);
+            return;
         }
 
         Account sender = senderAcc.get();
         Account receiver = receiverAcc.get();
 
         if (sender.getBalance() < event.getAmount()) {
-            // Publish event to topic: transaction-result failed
+            TransactionResultEvent transactionResultEvent = mapToEvent(event, Status.FAILED);
+            this.transactionResultProducer.send(transactionResultEvent);
+            return;
         }
 
         sender.setBalance(sender.getBalance() - event.getAmount());
         receiver.setBalance(receiver.getBalance() + event.getAmount());
         this.accountRepository.save(sender);
         this.accountRepository.save(receiver);
-        // Publish event to topic: transaction-result success
 
+        TransactionResultEvent transactionResultEvent = mapToEvent(event, Status.COMPLETE);
+        this.transactionResultProducer.send(transactionResultEvent);
     }
 
 
@@ -101,5 +112,12 @@ public class AccountService {
 
     private String generateAccountNumber() {
         return String.format("%010d", ThreadLocalRandom.current().nextInt(1_000_000_000));
+    }
+
+    private TransactionResultEvent mapToEvent(TransactionEvent event, Status status) {
+        TransactionResultEvent transactionResultEvent = new TransactionResultEvent();
+        transactionResultEvent.setTransactionId(event.getTransactionId());
+        transactionResultEvent.setStatus(status);
+        return transactionResultEvent;
     }
 }

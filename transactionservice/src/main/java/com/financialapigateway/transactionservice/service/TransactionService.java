@@ -4,6 +4,7 @@ import com.financialapigateway.transactionservice.dto.TransactionDto;
 import com.financialapigateway.transactionservice.entity.Transaction;
 import com.financialapigateway.transactionservice.enumeration.Status;
 import com.financialapigateway.transactionservice.event.TransactionEvent;
+import com.financialapigateway.transactionservice.event.TransactionResultEvent;
 import com.financialapigateway.transactionservice.exceptions.TransactionNotFoundException;
 import com.financialapigateway.transactionservice.kafka.TransactionProducer;
 import com.financialapigateway.transactionservice.repository.TransactionRepository;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -55,6 +57,16 @@ public class TransactionService {
                 .collect(Collectors.toList());
     }
 
+    // Don't handle exception in consumers will cause infinite retry
+    public void updateTransactionStatus(TransactionResultEvent transactionResultEvent) {
+        Optional<Transaction> transactionOptional = this.transactionRepository.findById(transactionResultEvent.getTransactionId());
+        if (transactionOptional.isPresent()) {
+            Transaction transaction = transactionOptional.get();
+            transaction.setStatus(transactionResultEvent.getStatus());
+            this.transactionRepository.save(transaction);
+            System.out.println("Transaction successfully updated: " + transactionResultEvent.getTransactionId() + " " + transactionResultEvent.getStatus());
+        }
+    }
 
     private Transaction mapToEntity(TransactionDto input) {
         Transaction transaction = new Transaction();

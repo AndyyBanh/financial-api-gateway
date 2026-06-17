@@ -1,6 +1,7 @@
 general:
   kafka-topic:
     transactions: transactions
+    transaction-results: transaction-results
 
 spring:
   application:
@@ -19,6 +20,7 @@ spring:
   kafka:
     producer:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
     consumer:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:

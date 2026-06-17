@@ -1,7 +1,7 @@
 general:
   kafka-topic:
     transactions: transactions
-
+    transaction-results: transaction-results
 
 spring:
   application:
@@ -21,6 +21,13 @@ spring:
     producer:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      group-id: transaction-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+      auto-offset-reset: earliest
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
   config:
     import: optional:file:.env.local[.properties]
