@@ -5,10 +5,15 @@ import com.financialapigateway.transactionservice.entity.Transaction;
 import com.financialapigateway.transactionservice.enumeration.Status;
 import com.financialapigateway.transactionservice.event.TransactionEvent;
 import com.financialapigateway.transactionservice.event.TransactionResultEvent;
+import com.financialapigateway.transactionservice.exceptions.AccountNotFoundException;
+import com.financialapigateway.transactionservice.exceptions.InsufficientBalanceException;
 import com.financialapigateway.transactionservice.exceptions.TransactionNotFoundException;
+import com.financialapigateway.transactionservice.feignclient.AccountClient;
 import com.financialapigateway.transactionservice.kafka.TransactionProducer;
 import com.financialapigateway.transactionservice.repository.TransactionRepository;
+import com.financialapigateway.transactionservice.response.AccountResponse;
 import com.financialapigateway.transactionservice.response.TransactionResponse;
+import feign.FeignException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -23,15 +28,28 @@ public class TransactionService {
 
     private final TransactionRepository transactionRepository;
     private final TransactionProducer transactionProducer;
+    private final AccountClient accountClient;
 
     @Autowired
-    public TransactionService(TransactionRepository transactionRepository,  TransactionProducer transactionProducer) {
+    public TransactionService(TransactionRepository transactionRepository,  TransactionProducer transactionProducer, AccountClient accountClient) {
         this.transactionRepository = transactionRepository;
         this.transactionProducer = transactionProducer;
+        this.accountClient = accountClient;
     }
 
-    // exception handled in mapToEntity method
     public TransactionResponse createTransaction(TransactionDto input) {
+        AccountResponse sender;
+        AccountResponse receiver;
+        try {
+            sender = this.accountClient.getAccountByAccountNumber(input.getSenderId());
+            receiver = this.accountClient.getAccountByAccountNumber(input.getRecipientId());
+        } catch (FeignException.NotFound ex) {
+            throw new AccountNotFoundException("Account not found");
+        }
+        if (sender.getBalance() < input.getAmount()) {
+            throw new InsufficientBalanceException("Sender account balance is insufficient");
+        }
+
         Transaction transaction = mapToEntity(input);
         this.transactionRepository.save(transaction);
         TransactionEvent transactionEvent = mapToEvent(transaction);
@@ -72,7 +90,6 @@ public class TransactionService {
         Transaction transaction = new Transaction();
         transaction.setSenderId(input.getSenderId());
         transaction.setRecipientId(input.getRecipientId());
-        // need to add validation logic i.e check if sender balance is sufficient else throw exception here
         transaction.setAmount(input.getAmount());
         transaction.setStatus(Status.PENDING);
         transaction.setCreatedAt(LocalDateTime.now());

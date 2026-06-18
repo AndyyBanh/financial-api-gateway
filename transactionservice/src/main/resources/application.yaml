@@ -2,6 +2,9 @@ general:
   kafka-topic:
     transactions: transactions
     transaction-results: transaction-results
+services:
+  account-service:
+    url: http://account-service:8082
 
 spring:
   application:

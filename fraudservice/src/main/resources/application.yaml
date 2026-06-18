@@ -4,6 +4,14 @@ general:
 
 fraud:
   large-amount-threshold: 10000
+  frequency-limit: 10
+  frequency-window-limit: 10
+
+services:
+  account-service:
+    url: http://account-service:8082
+  transaction-service:
+    url: http://transaction-service:8081
 
 spring:
   application:
