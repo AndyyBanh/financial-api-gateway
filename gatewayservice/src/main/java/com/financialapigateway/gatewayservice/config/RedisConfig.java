@@ -37,7 +37,7 @@ public class RedisConfig {
     @Bean
     public Supplier<BucketConfiguration> bucketConfiguration() {
         return () -> BucketConfiguration.builder()
-                .addLimit(limit -> limit.capacity(5L).refillIntervally(5L, Duration.ofMinutes(5L)))
+                .addLimit(limit -> limit.capacity(1000L).refillIntervally(10000L, Duration.ofMinutes(1L)))
                 .build();
     }
 

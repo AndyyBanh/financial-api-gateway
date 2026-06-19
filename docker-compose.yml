@@ -1,0 +1,116 @@
+services:
+  gateway-service:
+    build: ./gatewayservice
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./gatewayservice/.env.local
+    depends_on:
+      - gateway-db
+      - redis
+
+  transaction-service:
+    build: ./transactionservice
+    ports:
+      - "8081:8081"
+    env_file:
+      - ./transactionservice/.env.local
+    depends_on:
+      - transaction-db
+      - kafka
+
+  account-service:
+    build: ./accountservice
+    ports:
+      - "8082:8082"
+    env_file:
+      - ./accountservice/.env.local
+    depends_on:
+      - account-db
+      - kafka
+
+  fraud-service:
+    build: ./fraudservice
+    ports:
+      - "8083:8083"
+    env_file:
+      - ./fraudservice/.env.local
+    depends_on:
+      - fraud-db
+      - kafka
+
+  gateway-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: gatewaydb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - gateway-db-data:/var/lib/postgresql/data
+
+  transaction-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: transactiondb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - transaction-db-data:/var/lib/postgresql/data
+
+  account-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: accountdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - account-db-data:/var/lib/postgresql/data
+
+  fraud-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: frauddb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - fraud-db-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+
+volumes:
+  gateway-db-data:
+  transaction-db-data:
+  account-db-data:
+  fraud-db-data:
