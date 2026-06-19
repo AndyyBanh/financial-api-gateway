@@ -21,10 +21,13 @@ spring:
     producer:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
+    properties:
+      spring.json.add.type.headers: false
     consumer:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "*"
+        spring.json.value.default.type: com.financialapigateway.accountservice.event.TransactionEvent
       group-id: account-group
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
