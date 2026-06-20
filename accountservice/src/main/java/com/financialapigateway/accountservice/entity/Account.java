@@ -11,7 +11,10 @@ import java.util.UUID;
 @Entity
 @Data
 @NoArgsConstructor
-@Table(name = "accounts")
+@Table(name = "accounts", indexes = {
+        @Index(name = "index_accounts_account_number", columnList = "accountNumber"),
+        @Index(name = "index_accounts_user_id", columnList = "userId")
+})
 public class Account {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

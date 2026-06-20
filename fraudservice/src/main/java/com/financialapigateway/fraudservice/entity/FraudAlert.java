@@ -14,7 +14,9 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "fraud_alerts")
+@Table(name = "fraud_alerts", indexes = {
+        @Index(name = "idx_fraud_alerts_transaction_id", columnList = "transactionId")
+})
 public class FraudAlert {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

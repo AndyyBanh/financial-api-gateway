@@ -13,7 +13,10 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "transactions")
+@Table(name = "transactions", indexes = {
+        @Index(name = "idx_transactions_sender_id", columnList = "senderId"),
+        @Index(name = "idx_transactions_recipient_id", columnList = "recipientId")
+})
 public class Transaction {
 
     @Id
