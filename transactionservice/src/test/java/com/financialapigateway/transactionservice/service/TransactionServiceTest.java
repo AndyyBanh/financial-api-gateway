@@ -39,7 +39,7 @@ public class TransactionServiceTest {
     private TransactionService transactionService;
 
     @Test
-    public void shouldThrowAccountNotFoundExceptionWhenAccountNotFound() {
+    void shouldThrowAccountNotFoundExceptionWhenAccountNotFound() {
         TransactionDto input = new TransactionDto();
         input.setSenderId("123");
         input.setRecipientId("321");
@@ -53,7 +53,7 @@ public class TransactionServiceTest {
     }
 
     @Test
-    public void shouldThrowInsufficientBalanceException() {
+    void shouldThrowInsufficientBalanceException() {
         TransactionDto input = new TransactionDto();
         input.setSenderId("123");
         input.setRecipientId("321");
@@ -75,7 +75,7 @@ public class TransactionServiceTest {
     }
 
     @Test
-    public void shouldCreateTransaction() {
+    void shouldCreateTransaction() {
         TransactionDto input = new TransactionDto();
         input.setSenderId("123");
         input.setRecipientId("321");
@@ -107,10 +107,9 @@ public class TransactionServiceTest {
                 && event.getStatus() == Status.PENDING
         ));
     }
-
-
+    
     @Test
-    public void shouldNotUpdateTransaction() {
+    void shouldNotUpdateTransaction() {
         TransactionResultEvent event = new TransactionResultEvent();
         event.setTransactionId(UUID.randomUUID());
         event.setStatus(Status.COMPLETE);
@@ -123,7 +122,7 @@ public class TransactionServiceTest {
     }
 
     @Test
-    public void shouldUpdateTransaction() {
+    void shouldUpdateTransaction() {
         TransactionResultEvent event = new TransactionResultEvent();
         event.setTransactionId(UUID.randomUUID());
         event.setStatus(Status.COMPLETE);

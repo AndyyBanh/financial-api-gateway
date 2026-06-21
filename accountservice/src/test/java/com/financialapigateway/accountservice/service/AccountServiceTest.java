@@ -31,7 +31,7 @@ public class AccountServiceTest {
     private AccountService accountService;
 
     @Test
-    public void shouldFlagAccountsDoNotExist() {
+    void shouldFlagAccountsDoNotExist() {
         TransactionEvent event = new TransactionEvent();
         event.setTransactionId(UUID.randomUUID());
         event.setSenderId("123");
@@ -52,7 +52,7 @@ public class AccountServiceTest {
     }
 
     @Test
-    public void shouldFlagInsufficientBalance() {
+    void shouldFlagInsufficientBalance() {
         TransactionEvent event = new TransactionEvent();
         event.setTransactionId(UUID.randomUUID());
         event.setSenderId("123");
@@ -79,7 +79,7 @@ public class AccountServiceTest {
     }
 
     @Test
-    public void shouldUpdateBalanceOnSuccess() {
+    void shouldUpdateBalanceOnSuccess() {
         TransactionEvent event = new TransactionEvent();
         event.setTransactionId(UUID.randomUUID());
         event.setSenderId("123");
