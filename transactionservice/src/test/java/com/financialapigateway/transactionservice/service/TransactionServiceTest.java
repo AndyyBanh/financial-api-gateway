@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
@@ -140,5 +141,22 @@ public class TransactionServiceTest {
             res.getTransactionId().equals(event.getTransactionId())
             &&    res.getStatus() == Status.COMPLETE
         ));
+    }
+
+    @Test
+    void shouldNotOverwriteFinalizedTransaction() {
+        TransactionResultEvent event = new TransactionResultEvent();
+        event.setTransactionId(UUID.randomUUID());
+        event.setStatus(Status.FAILED);
+
+        Transaction transaction = new Transaction();
+        transaction.setTransactionId(event.getTransactionId());
+        transaction.setStatus(Status.COMPLETE);
+        when(this.transactionRepository.findById(event.getTransactionId())).thenReturn(Optional.of(transaction));
+
+        this.transactionService.updateTransactionStatus(event);
+
+        assertEquals(Status.COMPLETE, transaction.getStatus());
+        verify(this.transactionRepository, never()).save(any());
     }
 }

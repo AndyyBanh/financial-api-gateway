@@ -80,6 +80,11 @@ public class TransactionService {
         Optional<Transaction> transactionOptional = this.transactionRepository.findById(transactionResultEvent.getTransactionId());
         if (transactionOptional.isPresent()) {
             Transaction transaction = transactionOptional.get();
+            // Only PENDING can move to a final state, so a late or duplicate result can't overwrite it
+            if (transaction.getStatus() != Status.PENDING) {
+                System.out.println("Ignoring status update for finalized transaction: " + transactionResultEvent.getTransactionId() + " " + transaction.getStatus() + " -> " + transactionResultEvent.getStatus());
+                return;
+            }
             transaction.setStatus(transactionResultEvent.getStatus());
             this.transactionRepository.save(transaction);
             System.out.println("Transaction successfully updated: " + transactionResultEvent.getTransactionId() + " " + transactionResultEvent.getStatus());
