@@ -11,6 +11,7 @@ import com.financialapigateway.fraudservice.repository.FraudAlertRepository;
 import com.financialapigateway.fraudservice.response.AccountResponse;
 import com.financialapigateway.fraudservice.response.FraudAlertResponse;
 import com.financialapigateway.fraudservice.response.TransactionResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 public class FraudAlertService {
 
@@ -60,17 +62,21 @@ public class FraudAlertService {
     public void processTransaction(TransactionEvent event) {
         // Check if alert already exists
         if (this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())) {
+            log.debug("Alert already exists, skipping transactionId={}", event.getTransactionId());
             return;
         }
 
         Reason reason = detectFraud(event);
 
-        if (reason != null) {
-            Severity severity = determineSeverity(reason);
-            FraudAlert alert = mapToEntity(reason, severity, event);
-            this.fraudAlertRepository.save(alert);
-            System.out.println("Fraud alert created for transaction " + event.getTransactionId());
+        if (reason == null) {
+            log.debug("No fraud detected transactionId={}", event.getTransactionId());
+            return;
         }
+
+        Severity severity = determineSeverity(reason);
+        FraudAlert alert = mapToEntity(reason, severity, event);
+        this.fraudAlertRepository.save(alert);
+        log.info("Fraud alert created transactionId={} reason={} severity={}", event.getTransactionId(), reason, severity);
     }
 
     @Value("${fraud.large-amount-threshold}")

@@ -2,15 +2,17 @@ package com.financialapigateway.accountservice.service;
 
 import com.financialapigateway.accountservice.dto.AccountDto;
 import com.financialapigateway.accountservice.entity.Account;
+import com.financialapigateway.accountservice.entity.ProcessedTransaction;
 import com.financialapigateway.accountservice.enumeration.Status;
 import com.financialapigateway.accountservice.event.TransactionEvent;
-import com.financialapigateway.accountservice.event.TransactionResultEvent;
 import com.financialapigateway.accountservice.exceptions.AccountNotFoundException;
-import com.financialapigateway.accountservice.kafka.TransactionResultProducer;
 import com.financialapigateway.accountservice.repository.AccountRepository;
+import com.financialapigateway.accountservice.repository.ProcessedTransactionRepository;
 import com.financialapigateway.accountservice.response.AccountResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -19,17 +21,18 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class AccountService {
 
     private final AccountRepository accountRepository;
 
-    private final TransactionResultProducer transactionResultProducer;
+    private final ProcessedTransactionRepository processedTransactionRepository;
 
     @Autowired
-    public AccountService(AccountRepository accountRepository, TransactionResultProducer transactionResultProducer) {
+    public AccountService(AccountRepository accountRepository, ProcessedTransactionRepository processedTransactionRepository) {
         this.accountRepository = accountRepository;
-        this.transactionResultProducer = transactionResultProducer;
+        this.processedTransactionRepository = processedTransactionRepository;
     }
 
     public AccountResponse createAccount(AccountDto input) {
@@ -60,33 +63,45 @@ public class AccountService {
                 .collect(Collectors.toList());
     }
 
-    // Don't handle exceptions because Kafka will keep infinite retry
-    public void processTransaction(TransactionEvent event) {
+    // Exceptions propagate to the Kafka error handler, which retries and then dead-letters the event.
+    // Returns the outcome; a redelivered event returns its stored outcome without moving balances again.
+    @Transactional
+    public Status processTransaction(TransactionEvent event) {
+        Optional<ProcessedTransaction> processed = this.processedTransactionRepository.findById(event.getTransactionId());
+        if (processed.isPresent()) {
+            log.debug("Transaction already processed transactionId={}", event.getTransactionId());
+            return processed.get().getStatus();
+        }
+
+        Status status = applyTransfer(event);
+        this.processedTransactionRepository.save(new ProcessedTransaction(event.getTransactionId(), status));
+        log.info("Transaction processed transactionId={} status={}", event.getTransactionId(), status);
+        return status;
+    }
+
+    private Status applyTransfer(TransactionEvent event) {
         Optional<Account> senderAcc = this.accountRepository.findByAccountNumber(event.getSenderId());
         Optional<Account> receiverAcc = this.accountRepository.findByAccountNumber(event.getRecipientId());
 
+        // Account numbers and amounts stay out of the logs; transactionId is enough to look them up
         if (senderAcc.isEmpty() || receiverAcc.isEmpty()) {
-            TransactionResultEvent transactionResultEvent = mapToEvent(event, Status.FAILED);
-            this.transactionResultProducer.send(transactionResultEvent);
-            return;
+            log.warn("Account not found for transactionId={}", event.getTransactionId());
+            return Status.FAILED;
         }
 
         Account sender = senderAcc.get();
         Account receiver = receiverAcc.get();
 
         if (sender.getBalance() < event.getAmount()) {
-            TransactionResultEvent transactionResultEvent = mapToEvent(event, Status.FAILED);
-            this.transactionResultProducer.send(transactionResultEvent);
-            return;
+            log.info("Insufficient balance for transactionId={}", event.getTransactionId());
+            return Status.FAILED;
         }
 
         sender.setBalance(sender.getBalance() - event.getAmount());
         receiver.setBalance(receiver.getBalance() + event.getAmount());
         this.accountRepository.save(sender);
         this.accountRepository.save(receiver);
-
-        TransactionResultEvent transactionResultEvent = mapToEvent(event, Status.COMPLETE);
-        this.transactionResultProducer.send(transactionResultEvent);
+        return Status.COMPLETE;
     }
 
 
@@ -112,12 +127,5 @@ public class AccountService {
 
     private String generateAccountNumber() {
         return String.format("%010d", ThreadLocalRandom.current().nextInt(1_000_000_000));
-    }
-
-    private TransactionResultEvent mapToEvent(TransactionEvent event, Status status) {
-        TransactionResultEvent transactionResultEvent = new TransactionResultEvent();
-        transactionResultEvent.setTransactionId(event.getTransactionId());
-        transactionResultEvent.setStatus(status);
-        return transactionResultEvent;
     }
 }

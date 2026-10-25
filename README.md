@@ -11,6 +11,7 @@ Took inspiration after completing J.P. Morgan simulation and decided to expand o
 - [Tech Stack](#tech-stack)
 - [Getting Started](#getting-started)
 - [Testing](#testing)
+- [Logging](#logging)
 - [Performance & Metrics](#performance--metrics)
 - [Current Limitations](#current-limitations)
 
@@ -111,8 +112,37 @@ Unit tests focus on business logic with real branching/decision paths, rather th
 
 Run tests per service:
 ```bash
-mvn test
+cd <service>   # accountservice | fraudservice | transactionservice | gatewayservice
+./mvnw test
 ```
+
+Tests don't need Docker. Each service's `contextLoads` test runs with the `test` profile (`src/test/resources/application-test.yaml`), which swaps in an in-memory H2 database, an embedded Kafka broker, a mocked Redis rate limiter (gateway) and a dummy JWT secret. When a test fails, the full `Caused by:` chain is printed to the console and saved in `target/surefire-reports/`.
+
+## Logging
+
+Services log through SLF4J (Lombok's `@Slf4j`), and Spring Boot's default Logback writes the output. This is the Java counterpart of .NET's `ILogger<T>`. Messages use `{}` placeholders, and errors pass the exception as the last argument so the stack trace is kept:
+
+```java
+log.info("Fraud alert created transactionId={} reason={} severity={}", id, reason, severity);
+log.error("Error sending transaction event transactionId={}", id, ex);
+```
+
+| Level | Used for | Example |
+|---|---|---|
+| `DEBUG` | Step-by-step flow | `Received transaction event transactionId=…` |
+| `INFO` | Business outcomes | `Transaction processed transactionId=… status=COMPLETE` |
+| `WARN` | Unexpected but handled | `Delivery attempt 2 failed for key=… (RuntimeException)`, `JWT rejected: ExpiredJwtException`, `Rate limit exceeded ip=…` |
+| `ERROR` | Failed, needs attention | `Sending key=… to transactions-dlt after RuntimeException` |
+
+Client errors handled by each `GlobalExceptionHandler` (404 not found, 409 already exists) aren't logged, because they aren't service faults.
+
+**Sensitive data:** logs carry identifiers only (`transactionId`, `alertId`, `userId`), plus enums and exception class names. They never include:
+- Event or DTO objects. They're Lombok `@Data`, so `toString()` prints account numbers, amounts, and the plaintext password in `LoginUserDto`/`RegisterUserDto`.
+- Passwords, JWTs or the `Authorization` header, emails, account numbers, amounts or balances.
+- `FeignException` messages, which embed the downstream response body.
+- Output from loggers that dump data: Hikari `DEBUG` (pool config), `org.hibernate.orm.jdbc.bind` `TRACE` (SQL bind values), Feign `loggerLevel: FULL` (headers and bodies).
+
+App logs default to `INFO`. To turn on debug output for one service, add `logging.level.com.financialapigateway=DEBUG` to its `.env.local`, or set `LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY=DEBUG` in the container's environment. The `test` profile already runs app code at `DEBUG`.
 
 ## Performance & Metrics
 
@@ -147,4 +177,4 @@ The async pipeline introduces no latency to the client-facing API response — t
 
 - **Single Kafka broker, single partition per topic.** Sufficient for local development and demonstrating async event-driven communication; would need multiple partitions and replication factor >1 across multiple brokers for production fault tolerance and throughput.
 
-- **No automated retry/dead-letter handling for Kafka consumer failures.** Consumers currently skip and log on missing data (e.g., account not found) rather than routing to a dead-letter topic for manual review — acceptable for this scope, but a production system would want that visibility.
+- **Dead-letter topic has no consumer.** Account and Fraud consumers retry failed events (3 retries, exponential backoff 1s → 2s → 4s; malformed messages, validation errors and Feign 4xx skip retries) and then publish them to a shared `transactions-dlt` topic, with Spring's `kafka_dlt-original-consumer-group` header identifying which service failed. The Account Service also emits a `FAILED` result so the transaction doesn't stay `PENDING`, and it records processed transaction IDs so retries can't apply a transfer twice. Dead-lettered events must be inspected and replayed manually; there is no automated replay or alerting.

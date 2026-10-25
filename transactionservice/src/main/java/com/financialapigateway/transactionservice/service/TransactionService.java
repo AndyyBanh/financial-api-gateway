@@ -14,6 +14,7 @@ import com.financialapigateway.transactionservice.repository.TransactionReposito
 import com.financialapigateway.transactionservice.response.AccountResponse;
 import com.financialapigateway.transactionservice.response.TransactionResponse;
 import feign.FeignException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class TransactionService {
 
@@ -80,9 +82,14 @@ public class TransactionService {
         Optional<Transaction> transactionOptional = this.transactionRepository.findById(transactionResultEvent.getTransactionId());
         if (transactionOptional.isPresent()) {
             Transaction transaction = transactionOptional.get();
+            // Only PENDING can move to a final state, so a late or duplicate result can't overwrite it
+            if (transaction.getStatus() != Status.PENDING) {
+                log.warn("Ignoring status update for finalized transactionId={} {} -> {}", transactionResultEvent.getTransactionId(), transaction.getStatus(), transactionResultEvent.getStatus());
+                return;
+            }
             transaction.setStatus(transactionResultEvent.getStatus());
             this.transactionRepository.save(transaction);
-            System.out.println("Transaction successfully updated: " + transactionResultEvent.getTransactionId() + " " + transactionResultEvent.getStatus());
+            log.info("Transaction updated transactionId={} status={}", transactionResultEvent.getTransactionId(), transactionResultEvent.getStatus());
         }
     }
 

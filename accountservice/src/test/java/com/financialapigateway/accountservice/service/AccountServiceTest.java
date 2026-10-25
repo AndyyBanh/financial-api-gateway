@@ -1,10 +1,11 @@
 package com.financialapigateway.accountservice.service;
 
 import com.financialapigateway.accountservice.entity.Account;
+import com.financialapigateway.accountservice.entity.ProcessedTransaction;
 import com.financialapigateway.accountservice.enumeration.Status;
 import com.financialapigateway.accountservice.event.TransactionEvent;
-import com.financialapigateway.accountservice.kafka.TransactionResultProducer;
 import com.financialapigateway.accountservice.repository.AccountRepository;
+import com.financialapigateway.accountservice.repository.ProcessedTransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -25,7 +26,7 @@ public class AccountServiceTest {
     private AccountRepository accountRepository;
 
     @Mock
-    private TransactionResultProducer transactionResultProducer;
+    private ProcessedTransactionRepository processedTransactionRepository;
 
     @InjectMocks
     private AccountService accountService;
@@ -41,11 +42,12 @@ public class AccountServiceTest {
         when(this.accountRepository.findByAccountNumber(event.getSenderId())).thenReturn(Optional.empty());
         when(this.accountRepository.findByAccountNumber(event.getRecipientId())).thenReturn(Optional.empty());
 
-        this.accountService.processTransaction(event);
+        Status status = this.accountService.processTransaction(event);
 
-        verify(this.transactionResultProducer).send(argThat(result ->
-                result.getTransactionId().equals(event.getTransactionId())
-                && result.getStatus() == Status.FAILED
+        assertEquals(Status.FAILED, status);
+        verify(this.processedTransactionRepository).save(argThat(processed ->
+                processed.getTransactionId().equals(event.getTransactionId())
+                && processed.getStatus() == Status.FAILED
         ));
 
         verify(this.accountRepository, never()).save(any());
@@ -68,11 +70,12 @@ public class AccountServiceTest {
         Account sender = senderAcc.get();
         sender.setBalance(0f);
 
-        this.accountService.processTransaction(event);
+        Status status = this.accountService.processTransaction(event);
 
-        verify(this.transactionResultProducer).send(argThat(result ->
-                result.getTransactionId().equals(event.getTransactionId())
-                && result.getStatus() == Status.FAILED
+        assertEquals(Status.FAILED, status);
+        verify(this.processedTransactionRepository).save(argThat(processed ->
+                processed.getTransactionId().equals(event.getTransactionId())
+                && processed.getStatus() == Status.FAILED
         ));
 
         verify(this.accountRepository, never()).save(any());
@@ -100,7 +103,7 @@ public class AccountServiceTest {
         receiver.setAccountNumber(event.getRecipientId());
         receiver.setBalance(0f);
 
-        this.accountService.processTransaction(event);
+        Status status = this.accountService.processTransaction(event);
 
         assertEquals(50f, sender.getBalance());
         assertEquals(50f, receiver.getBalance());
@@ -116,9 +119,29 @@ public class AccountServiceTest {
            && account.getBalance() == 50f
         ));
 
-        verify(this.transactionResultProducer).send(argThat(result ->
-            result.getTransactionId().equals(event.getTransactionId())
-            && result.getStatus() == Status.COMPLETE
+        assertEquals(Status.COMPLETE, status);
+        verify(this.processedTransactionRepository).save(argThat(processed ->
+            processed.getTransactionId().equals(event.getTransactionId())
+            && processed.getStatus() == Status.COMPLETE
         ));
+    }
+
+    @Test
+    void shouldSkipAlreadyProcessedTransaction() {
+        TransactionEvent event = new TransactionEvent();
+        event.setTransactionId(UUID.randomUUID());
+        event.setSenderId("123");
+        event.setRecipientId("321");
+        event.setAmount(50f);
+
+        when(this.processedTransactionRepository.findById(event.getTransactionId()))
+                .thenReturn(Optional.of(new ProcessedTransaction(event.getTransactionId(), Status.COMPLETE)));
+
+        Status status = this.accountService.processTransaction(event);
+
+        assertEquals(Status.COMPLETE, status);
+        verify(this.accountRepository, never()).findByAccountNumber(any());
+        verify(this.accountRepository, never()).save(any());
+        verify(this.processedTransactionRepository, never()).save(any());
     }
 }

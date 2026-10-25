@@ -4,6 +4,7 @@ import io.github.bucket4j.Bucket;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 import lombok.NonNull;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -18,6 +19,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.util.function.Supplier;
 
+@Slf4j
 @Component
 public class RateLimitFilter implements WebFilter, Ordered {
 
@@ -48,7 +50,7 @@ public class RateLimitFilter implements WebFilter, Ordered {
         }).subscribeOn(Schedulers.boundedElastic())
                 .flatMap(probe -> probe.isConsumed()
                         ? allowRequest(exchange, chain, probe.getRemainingTokens())
-                        : rejectRequest(exchange, probe.getNanosToWaitForRefill()));
+                        : rejectRequest(exchange, ip, probe.getNanosToWaitForRefill()));
     }
 
     private Mono<Void> allowRequest(ServerWebExchange exchange, WebFilterChain chain, long remaining) {
@@ -57,8 +59,9 @@ public class RateLimitFilter implements WebFilter, Ordered {
         return chain.filter(exchange);
     }
 
-    private Mono<Void> rejectRequest(ServerWebExchange exchange, long nanosToWait) {
+    private Mono<Void> rejectRequest(ServerWebExchange exchange, String ip, long nanosToWait) {
         long waitSeconds = nanosToWait / 1_000_000_000;
+        log.warn("Rate limit exceeded ip={} retryAfter={}s", ip, waitSeconds);
         exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
         exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
         String body = String.format(
