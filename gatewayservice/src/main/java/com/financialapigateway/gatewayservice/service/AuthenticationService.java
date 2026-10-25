@@ -10,6 +10,7 @@ import com.financialapigateway.gatewayservice.response.LoginUserResponse;
 import com.financialapigateway.gatewayservice.response.RegisterUserResponse;
 import com.financialapigateway.gatewayservice.security.JwtService;
 import com.financialapigateway.gatewayservice.security.Role;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -21,6 +22,8 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 
+// Logs carry userId only: emails are PII and the DTOs' toString() includes the plaintext password
+@Slf4j
 @Service
 public class AuthenticationService {
 
@@ -45,6 +48,7 @@ public class AuthenticationService {
     public Mono<RegisterUserResponse> register(RegisterUserDto input) {
         return checkIfUserExist(input.getEmail())
                 .then(Mono.defer(() -> createUser(input)))
+                .doOnNext(userEntity -> log.info("User registered userId={}", userEntity.getUserId()))
                 .map(userEntity -> new RegisterUserResponse(userEntity.getUserId(), userEntity.getEmail()));
     }
 
@@ -53,6 +57,7 @@ public class AuthenticationService {
     private Mono<Void> checkIfUserExist(String email) {
         return Mono.fromCallable(() -> {
             if (this.userRepository.existsByEmail(email)) {
+                log.info("Registration rejected: user already exists");
                 throw new UserAlreadyExistsException("User already exists");
             }
             return null;
@@ -73,7 +78,9 @@ public class AuthenticationService {
 
     public Mono<LoginUserResponse> login(LoginUserDto input) {
         return findUserByEmail(input.getEmail())
-                .flatMap(userEntity -> authenticate(input))
+                .flatMap(userEntity -> authenticate(input)
+                        .doOnNext(authentication -> log.info("User logged in userId={}", userEntity.getUserId())))
+                .doOnError(ex -> log.info("Login failed: {}", ex.getClass().getSimpleName()))
                 .map(authentication -> buildLoginResponse(authentication, input.getEmail()));
     }
 

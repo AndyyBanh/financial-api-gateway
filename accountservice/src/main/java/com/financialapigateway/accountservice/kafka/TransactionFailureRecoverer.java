@@ -2,6 +2,7 @@ package com.financialapigateway.accountservice.kafka;
 
 import com.financialapigateway.accountservice.enumeration.Status;
 import com.financialapigateway.accountservice.event.TransactionResultEvent;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
@@ -9,6 +10,7 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import java.util.UUID;
 
 // Runs after retries are exhausted: dead-letter the record, then tell transaction service it failed.
+@Slf4j
 public class TransactionFailureRecoverer implements ConsumerRecordRecoverer {
 
     private final DeadLetterPublishingRecoverer deadLetterRecoverer;
@@ -29,14 +31,14 @@ public class TransactionFailureRecoverer implements ConsumerRecordRecoverer {
         try {
             transactionId = UUID.fromString(String.valueOf(record.key()));
         } catch (IllegalArgumentException ex) {
-            System.out.println("Dead-lettered record has no valid transactionId key: " + record.key());
+            log.warn("Dead-lettered record has no valid transactionId key: {}", record.key());
             return;
         }
 
         try {
             this.transactionResultProducer.send(new TransactionResultEvent(transactionId, Status.FAILED));
         } catch (Exception ex) {
-            System.out.println("Error sending FAILED result for dead-lettered transaction " + transactionId + ": " + ex.getMessage());
+            log.error("Error sending FAILED result for dead-lettered transactionId={}", transactionId, ex);
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.financialapigateway.gatewayservice.security;
 
 import lombok.NonNull;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -11,6 +12,7 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
+@Slf4j
 @Component
 public class JwtAuthenticationFilter implements WebFilter {
 
@@ -57,6 +59,8 @@ public class JwtAuthenticationFilter implements WebFilter {
                                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authenticationToken));
                    });
         } catch (Exception e) {
+            // Exception type only; never log the token or Authorization header
+            log.warn("JWT rejected: {}", e.getClass().getSimpleName());
             exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
             return exchange.getResponse().setComplete();
         }

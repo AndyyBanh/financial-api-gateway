@@ -9,6 +9,7 @@ import com.financialapigateway.accountservice.exceptions.AccountNotFoundExceptio
 import com.financialapigateway.accountservice.repository.AccountRepository;
 import com.financialapigateway.accountservice.repository.ProcessedTransactionRepository;
 import com.financialapigateway.accountservice.response.AccountResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class AccountService {
 
@@ -67,11 +69,13 @@ public class AccountService {
     public Status processTransaction(TransactionEvent event) {
         Optional<ProcessedTransaction> processed = this.processedTransactionRepository.findById(event.getTransactionId());
         if (processed.isPresent()) {
+            log.debug("Transaction already processed transactionId={}", event.getTransactionId());
             return processed.get().getStatus();
         }
 
         Status status = applyTransfer(event);
         this.processedTransactionRepository.save(new ProcessedTransaction(event.getTransactionId(), status));
+        log.info("Transaction processed transactionId={} status={}", event.getTransactionId(), status);
         return status;
     }
 
@@ -79,7 +83,9 @@ public class AccountService {
         Optional<Account> senderAcc = this.accountRepository.findByAccountNumber(event.getSenderId());
         Optional<Account> receiverAcc = this.accountRepository.findByAccountNumber(event.getRecipientId());
 
+        // Account numbers and amounts stay out of the logs; transactionId is enough to look them up
         if (senderAcc.isEmpty() || receiverAcc.isEmpty()) {
+            log.warn("Account not found for transactionId={}", event.getTransactionId());
             return Status.FAILED;
         }
 
@@ -87,6 +93,7 @@ public class AccountService {
         Account receiver = receiverAcc.get();
 
         if (sender.getBalance() < event.getAmount()) {
+            log.info("Insufficient balance for transactionId={}", event.getTransactionId());
             return Status.FAILED;
         }
 
