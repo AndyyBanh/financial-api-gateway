@@ -36,25 +36,36 @@ public class AccountService {
     }
 
     public AccountResponse createAccount(AccountDto input) {
+        log.debug("Creating account userId={}", input.getUserId());
         Account account = mapToEntity(input);
         this.accountRepository.save(account);
         return mapToResponse(account);
     }
 
     public AccountResponse getAccountById(UUID accountId) {
-        Account account = this.accountRepository.findById(accountId).orElseThrow(() -> new AccountNotFoundException("account not found"));
+        log.debug("Getting account accountId={}", accountId);
+        Account account = this.accountRepository.findById(accountId).orElseThrow(() -> {
+            log.warn("Account not found accountId={}", accountId);
+            return new AccountNotFoundException("account not found");
+        });
         return mapToResponse(account);
     }
 
     public AccountResponse getAccountByAccountNumber(String accountNumber) {
-        Account account = this.accountRepository.findByAccountNumber(accountNumber).orElseThrow(() -> new AccountNotFoundException("account not found"));
+        log.debug("Getting account by account number");
+        Account account = this.accountRepository.findByAccountNumber(accountNumber).orElseThrow(() -> {
+            log.warn("Account not found by account number");
+            return new AccountNotFoundException("account not found");
+        });
         return mapToResponse(account);
     }
 
     public List<AccountResponse> getAllAccountsByUserId(UUID userId) {
+        log.debug("Getting accounts userId={}", userId);
         List<Account> accounts = this.accountRepository.findByUserId(userId);
 
         if (accounts.isEmpty()) {
+            log.warn("No accounts found userId={}", userId);
             throw new AccountNotFoundException("account not found");
         }
 
@@ -67,6 +78,7 @@ public class AccountService {
     // Returns the outcome; a redelivered event returns its stored outcome without moving balances again.
     @Transactional
     public Status processTransaction(TransactionEvent event) {
+        log.debug("Processing transaction transactionId={}", event.getTransactionId());
         Optional<ProcessedTransaction> processed = this.processedTransactionRepository.findById(event.getTransactionId());
         if (processed.isPresent()) {
             log.debug("Transaction already processed transactionId={}", event.getTransactionId());
@@ -80,10 +92,10 @@ public class AccountService {
     }
 
     private Status applyTransfer(TransactionEvent event) {
+        log.debug("Applying transfer transactionId={}", event.getTransactionId());
         Optional<Account> senderAcc = this.accountRepository.findByAccountNumber(event.getSenderId());
         Optional<Account> receiverAcc = this.accountRepository.findByAccountNumber(event.getRecipientId());
 
-        // Account numbers and amounts stay out of the logs; transactionId is enough to look them up
         if (senderAcc.isEmpty() || receiverAcc.isEmpty()) {
             log.warn("Account not found for transactionId={}", event.getTransactionId());
             return Status.FAILED;
@@ -93,7 +105,7 @@ public class AccountService {
         Account receiver = receiverAcc.get();
 
         if (sender.getBalance() < event.getAmount()) {
-            log.info("Insufficient balance for transactionId={}", event.getTransactionId());
+            log.warn("Insufficient balance for transactionId={}", event.getTransactionId());
             return Status.FAILED;
         }
 

@@ -22,12 +22,11 @@ public class TransactionProducer {
     }
 
     public void send(TransactionEvent event) {
+        log.debug("Producing transaction event transactionId={} topic={}", event.getTransactionId(), this.topic);
         this.kafkaTemplate.send(this.topic, event.getTransactionId().toString(), event)
                 .whenComplete((result, ex) -> {
                     if (ex != null) {
                         log.error("Error sending transaction event transactionId={}", event.getTransactionId(), ex);
-                    } else {
-                        log.debug("Sent transaction event transactionId={}", event.getTransactionId());
                     }
         });
     }

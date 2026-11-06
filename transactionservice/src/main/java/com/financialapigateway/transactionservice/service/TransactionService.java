@@ -40,15 +40,18 @@ public class TransactionService {
     }
 
     public TransactionResponse createTransaction(TransactionDto input) {
+        log.debug("Creating transaction");
         AccountResponse sender;
         AccountResponse receiver;
         try {
             sender = this.accountClient.getAccountByAccountNumber(input.getSenderId());
             receiver = this.accountClient.getAccountByAccountNumber(input.getRecipientId());
         } catch (FeignException.NotFound ex) {
+            log.warn("Sender or recipient account not found for new transaction");
             throw new AccountNotFoundException("Account not found");
         }
         if (sender.getBalance() < input.getAmount()) {
+            log.warn("Insufficient balance for new transaction senderAccountId={}", sender.getAccountId());
             throw new InsufficientBalanceException("Sender account balance is insufficient");
         }
 
@@ -60,11 +63,16 @@ public class TransactionService {
     }
 
     public TransactionResponse getTransactionById(UUID transactionId) {
-        Transaction transaction = this.transactionRepository.findById(transactionId).orElseThrow(() -> new TransactionNotFoundException("Transaction not found"));
+        log.debug("Getting transaction transactionId={}", transactionId);
+        Transaction transaction = this.transactionRepository.findById(transactionId).orElseThrow(() -> {
+            log.warn("Transaction not found transactionId={}", transactionId);
+            return new TransactionNotFoundException("Transaction not found");
+        });
         return mapToResponse(transaction);
     }
 
     public List<TransactionResponse> getAllTransactionsByAccountNumber(String accountNumber, Status status) {
+        log.debug("Getting transactions by account number status={}", status);
         List<Transaction> transactions;
 
         if (status == null) {
@@ -79,6 +87,7 @@ public class TransactionService {
 
     // Don't handle exception in consumers will cause infinite retry
     public void updateTransactionStatus(TransactionResultEvent transactionResultEvent) {
+        log.debug("Updating transaction status transactionId={} status={}", transactionResultEvent.getTransactionId(), transactionResultEvent.getStatus());
         Optional<Transaction> transactionOptional = this.transactionRepository.findById(transactionResultEvent.getTransactionId());
         if (transactionOptional.isPresent()) {
             Transaction transaction = transactionOptional.get();
@@ -90,6 +99,8 @@ public class TransactionService {
             transaction.setStatus(transactionResultEvent.getStatus());
             this.transactionRepository.save(transaction);
             log.info("Transaction updated transactionId={} status={}", transactionResultEvent.getTransactionId(), transactionResultEvent.getStatus());
+        } else {
+            log.warn("Transaction not found for status update transactionId={}", transactionResultEvent.getTransactionId());
         }
     }
 

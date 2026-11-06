@@ -57,7 +57,6 @@ public class KafkaErrorHandlingConfig {
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, backOff);
         // 4xx from account/transaction service won't change on retry; 5xx and timeouts stay retryable
         errorHandler.addNotRetryableExceptions(IllegalArgumentException.class, NullPointerException.class, FeignException.FeignClientException.class);
-        // Log the record key (transactionId) and exception type only; values and messages can carry account data
         errorHandler.setRetryListeners((record, ex, deliveryAttempt) ->
                 log.warn("Delivery attempt {} failed for key={} ({})", deliveryAttempt, record.key(), causeName(ex)));
         return errorHandler;

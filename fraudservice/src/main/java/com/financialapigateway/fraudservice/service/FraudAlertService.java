@@ -36,15 +36,23 @@ public class FraudAlertService {
     }
 
     public FraudAlertResponse getFraudAlertByAlertId(UUID alertId) {
+        log.debug("Getting fraud alert alertId={}", alertId);
         FraudAlert alert = this.fraudAlertRepository.findById(alertId)
-                .orElseThrow(() -> new FraudAlertNotFoundException("Fraud Alert not found"));
+                .orElseThrow(() -> {
+                    log.warn("Fraud alert not found alertId={}", alertId);
+                    return new FraudAlertNotFoundException("Fraud Alert not found");
+                });
         return mapToResponse(alert);
     }
 
 
     public FraudAlertResponse getFraudAlertByTransactionId(UUID transactionId) {
+        log.debug("Getting fraud alert transactionId={}", transactionId);
         FraudAlert alert = this.fraudAlertRepository.findByTransactionId(transactionId)
-                .orElseThrow(() -> new FraudAlertNotFoundException("Fraud Alert not found"));
+                .orElseThrow(() -> {
+                    log.warn("Fraud alert not found transactionId={}", transactionId);
+                    return new FraudAlertNotFoundException("Fraud Alert not found");
+                });
         return mapToResponse(alert);
     }
 
@@ -60,6 +68,7 @@ public class FraudAlertService {
 
      */
     public void processTransaction(TransactionEvent event) {
+        log.debug("Checking transaction for fraud transactionId={}", event.getTransactionId());
         // Check if alert already exists
         if (this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())) {
             log.debug("Alert already exists, skipping transactionId={}", event.getTransactionId());

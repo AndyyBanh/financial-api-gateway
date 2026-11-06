@@ -59,7 +59,6 @@ public class JwtAuthenticationFilter implements WebFilter {
                                .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authenticationToken));
                    });
         } catch (Exception e) {
-            // Exception type only; never log the token or Authorization header
             log.warn("JWT rejected: {}", e.getClass().getSimpleName());
             exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
             return exchange.getResponse().setComplete();
