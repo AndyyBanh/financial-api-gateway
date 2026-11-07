@@ -26,6 +26,7 @@ public class TransactionListener {
     @KafkaListener(groupId = "account-group", topics = "${general.kafka-topic.transactions}")
     public void listen(TransactionEvent event) {
         log.debug("Received transaction event transactionId={}", event.getTransactionId());
+        // Send only after processTransaction has committed
         Status status = this.accountService.processTransaction(event);
         this.transactionResultProducer.send(new TransactionResultEvent(event.getTransactionId(), status));
     }

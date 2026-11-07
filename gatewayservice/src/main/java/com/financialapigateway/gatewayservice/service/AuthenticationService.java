@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -49,9 +50,9 @@ public class AuthenticationService {
                 .then(Mono.defer(() -> createUser(input)))
                 .doOnSubscribe(subscription -> log.debug("Registering user"))
                 .doOnNext(userEntity -> log.info("User registered userId={}", userEntity.getUserId()))
-                // UserAlreadyExistsException is already logged in checkIfUserExist
+                // UserAlreadyExistsException is already logged in checkIfUserExist; anything else is a fault
                 .doOnError(ex -> !(ex instanceof UserAlreadyExistsException),
-                        ex -> log.warn("Registration failed: {}", ex.getClass().getSimpleName()))
+                        ex -> log.error("Registration failed: {}", ex.getClass().getSimpleName()))
                 .map(userEntity -> new RegisterUserResponse(userEntity.getUserId(), userEntity.getEmail()));
     }
 
@@ -84,7 +85,14 @@ public class AuthenticationService {
                 .doOnSubscribe(subscription -> log.debug("Logging in user"))
                 .flatMap(userEntity -> authenticate(input)
                         .doOnNext(authentication -> log.info("User logged in userId={}", userEntity.getUserId())))
-                .doOnError(ex -> log.warn("Login failed: {}", ex.getClass().getSimpleName()))
+                .doOnError(ex -> {
+                    // Unknown user or bad credentials are expected; anything else is a fault
+                    if (ex instanceof UserNotFoundException || ex instanceof AuthenticationException) {
+                        log.warn("Login failed: {}", ex.getClass().getSimpleName());
+                    } else {
+                        log.error("Login failed: {}", ex.getClass().getSimpleName());
+                    }
+                })
                 .map(authentication -> buildLoginResponse(authentication, input.getEmail()));
     }
 

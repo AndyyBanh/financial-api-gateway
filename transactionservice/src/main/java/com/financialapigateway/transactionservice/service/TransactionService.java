@@ -88,8 +88,8 @@ public class TransactionService {
     /**
      * Sets a PENDING transaction to its final status.
      * <p>
-     * Ignores results for unknown or already-final transactions. Errors are left to Kafka,
-     * which tries 10 times, then skips the record.
+     * Ignores results for unknown or already-final transactions. Errors are left to the Kafka
+     * error handler, which retries and then sends the record to the DLT.
      *
      * @param transactionResultEvent
      */
