@@ -3,6 +3,7 @@ package com.financialapigateway.transactionservice.service;
 import com.financialapigateway.transactionservice.dto.TransactionDto;
 import com.financialapigateway.transactionservice.entity.Transaction;
 import com.financialapigateway.transactionservice.enumeration.Status;
+import com.financialapigateway.transactionservice.event.TransactionEvent;
 import com.financialapigateway.transactionservice.event.TransactionResultEvent;
 import com.financialapigateway.transactionservice.exceptions.AccountNotFoundException;
 import com.financialapigateway.transactionservice.exceptions.InsufficientBalanceException;
@@ -94,19 +95,8 @@ public class TransactionServiceTest {
 
         this.transactionService.createTransaction(input);
 
-        verify(this.transactionRepository).save(argThat(transaction ->
-                transaction.getSenderId().equals(input.getSenderId())
-                && transaction.getRecipientId().equals(input.getRecipientId())
-                && transaction.getAmount() == 50f
-                && transaction.getStatus() == Status.PENDING
-        ));
-
-        verify(this.transactionProducer).send(argThat(event ->
-                    event.getSenderId().equals(input.getSenderId())
-                && event.getRecipientId().equals(input.getRecipientId())
-                && event.getAmount() == 50f
-                && event.getStatus() == Status.PENDING
-        ));
+        verify(this.transactionRepository).save(pendingTransactionFor(input));
+        verify(this.transactionProducer).send(pendingEventFor(input));
     }
     
     @Test
@@ -137,10 +127,7 @@ public class TransactionServiceTest {
 
         this.transactionService.updateTransactionStatus(event);
 
-        verify(this.transactionRepository).save(argThat(res ->
-            res.getTransactionId().equals(event.getTransactionId())
-            &&    res.getStatus() == Status.COMPLETE
-        ));
+        verify(this.transactionRepository).save(transactionWith(event.getTransactionId(), Status.COMPLETE));
     }
 
     @Test
@@ -158,5 +145,23 @@ public class TransactionServiceTest {
 
         assertEquals(Status.COMPLETE, transaction.getStatus());
         verify(this.transactionRepository, never()).save(any());
+    }
+
+    private static Transaction pendingTransactionFor(TransactionDto input) {
+        return argThat(transaction -> transaction.getSenderId().equals(input.getSenderId())
+                && transaction.getRecipientId().equals(input.getRecipientId())
+                && transaction.getAmount() == input.getAmount()
+                && transaction.getStatus() == Status.PENDING);
+    }
+
+    private static TransactionEvent pendingEventFor(TransactionDto input) {
+        return argThat(event -> event.getSenderId().equals(input.getSenderId())
+                && event.getRecipientId().equals(input.getRecipientId())
+                && event.getAmount() == input.getAmount()
+                && event.getStatus() == Status.PENDING);
+    }
+
+    private static Transaction transactionWith(UUID transactionId, Status status) {
+        return argThat(transaction -> transaction.getTransactionId().equals(transactionId) && transaction.getStatus() == status);
     }
 }

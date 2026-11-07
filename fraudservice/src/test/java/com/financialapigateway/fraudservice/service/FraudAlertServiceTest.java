@@ -1,5 +1,6 @@
 package com.financialapigateway.fraudservice.service;
 
+import com.financialapigateway.fraudservice.entity.FraudAlert;
 import com.financialapigateway.fraudservice.enumeration.Reason;
 import com.financialapigateway.fraudservice.enumeration.Severity;
 import com.financialapigateway.fraudservice.event.TransactionEvent;
@@ -59,10 +60,7 @@ public class FraudAlertServiceTest {
 
         this.fraudAlertService.processTransaction(event);
 
-        verify(this.fraudAlertRepository).save(argThat(alert ->
-                alert.getReason() == Reason.LARGE_AMOUNT
-                && alert.getSeverity() == Severity.HIGH
-        ));
+        verify(this.fraudAlertRepository).save(alertWith(Reason.LARGE_AMOUNT, Severity.HIGH));
         verifyNoInteractions(this.accountClient, this.transactionClient);
     }
 
@@ -82,10 +80,7 @@ public class FraudAlertServiceTest {
 
         this.fraudAlertService.processTransaction(event);
 
-        verify(this.fraudAlertRepository).save(argThat(alert ->
-                alert.getReason() == Reason.SUSPICIOUS_PATTERN
-                && alert.getSeverity() == Severity.MEDIUM
-        ));
+        verify(this.fraudAlertRepository).save(alertWith(Reason.SUSPICIOUS_PATTERN, Severity.MEDIUM));
 
         verifyNoInteractions(this.transactionClient);
     }
@@ -115,10 +110,7 @@ public class FraudAlertServiceTest {
 
         this.fraudAlertService.processTransaction(event);
 
-        verify(this.fraudAlertRepository).save(argThat(alert ->
-                alert.getReason() == Reason.UNUSUAL_FREQUENCY
-                && alert.getSeverity() == Severity.LOW
-        ));
+        verify(this.fraudAlertRepository).save(alertWith(Reason.UNUSUAL_FREQUENCY, Severity.LOW));
     }
 
     @Test
@@ -152,5 +144,9 @@ public class FraudAlertServiceTest {
 
         verify(this.fraudAlertRepository, never()).save(any());
         verifyNoInteractions(this.accountClient, this.transactionClient);
+    }
+
+    private static FraudAlert alertWith(Reason reason, Severity severity) {
+        return argThat(alert -> alert.getReason() == reason && alert.getSeverity() == severity);
     }
 }

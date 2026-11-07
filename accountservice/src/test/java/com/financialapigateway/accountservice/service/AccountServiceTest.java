@@ -45,10 +45,7 @@ public class AccountServiceTest {
         Status status = this.accountService.processTransaction(event);
 
         assertEquals(Status.FAILED, status);
-        verify(this.processedTransactionRepository).save(argThat(processed ->
-                processed.getTransactionId().equals(event.getTransactionId())
-                && processed.getStatus() == Status.FAILED
-        ));
+        verify(this.processedTransactionRepository).save(new ProcessedTransaction(event.getTransactionId(), Status.FAILED));
 
         verify(this.accountRepository, never()).save(any());
     }
@@ -73,10 +70,7 @@ public class AccountServiceTest {
         Status status = this.accountService.processTransaction(event);
 
         assertEquals(Status.FAILED, status);
-        verify(this.processedTransactionRepository).save(argThat(processed ->
-                processed.getTransactionId().equals(event.getTransactionId())
-                && processed.getStatus() == Status.FAILED
-        ));
+        verify(this.processedTransactionRepository).save(new ProcessedTransaction(event.getTransactionId(), Status.FAILED));
 
         verify(this.accountRepository, never()).save(any());
     }
@@ -105,25 +99,10 @@ public class AccountServiceTest {
 
         Status status = this.accountService.processTransaction(event);
 
-        assertEquals(50f, sender.getBalance());
-        assertEquals(50f, receiver.getBalance());
-
-
-        verify(this.accountRepository).save(argThat(account ->
-            account.getAccountNumber().equals(event.getSenderId())
-            && account.getBalance() == 50f
-        ));
-
-        verify(this.accountRepository).save(argThat(account ->
-           account.getAccountNumber().equals(event.getRecipientId())
-           && account.getBalance() == 50f
-        ));
-
         assertEquals(Status.COMPLETE, status);
-        verify(this.processedTransactionRepository).save(argThat(processed ->
-            processed.getTransactionId().equals(event.getTransactionId())
-            && processed.getStatus() == Status.COMPLETE
-        ));
+        verify(this.accountRepository).save(accountWith(event.getSenderId(), 50f));
+        verify(this.accountRepository).save(accountWith(event.getRecipientId(), 50f));
+        verify(this.processedTransactionRepository).save(new ProcessedTransaction(event.getTransactionId(), Status.COMPLETE));
     }
 
     @Test
@@ -143,5 +122,9 @@ public class AccountServiceTest {
         verify(this.accountRepository, never()).findByAccountNumber(any());
         verify(this.accountRepository, never()).save(any());
         verify(this.processedTransactionRepository, never()).save(any());
+    }
+
+    private static Account accountWith(String accountNumber, float balance) {
+        return argThat(account -> account.getAccountNumber().equals(accountNumber) && account.getBalance() == balance);
     }
 }
