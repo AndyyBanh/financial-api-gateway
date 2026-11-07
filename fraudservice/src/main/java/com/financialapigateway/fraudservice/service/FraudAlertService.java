@@ -69,7 +69,6 @@ public class FraudAlertService {
      */
     public void processTransaction(TransactionEvent event) {
         log.debug("Checking transaction for fraud transactionId={}", event.getTransactionId());
-        // Check if alert already exists
         if (this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())) {
             log.debug("Alert already exists, skipping transactionId={}", event.getTransactionId());
             return;

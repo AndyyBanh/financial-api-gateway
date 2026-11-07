@@ -27,7 +27,6 @@ public class AuthenticationController {
 
     @PostMapping("/login")
     public Mono<ResponseEntity<LoginUserResponse>> login(@RequestBody LoginUserDto loginUserDto) {
-        // Never log the DTO: its toString() includes the email and plaintext password
         log.debug("Received login request");
         return this.authenticationService.login(loginUserDto).map(ResponseEntity::ok);
     }
