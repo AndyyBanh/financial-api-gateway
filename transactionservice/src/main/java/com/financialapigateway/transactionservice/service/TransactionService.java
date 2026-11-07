@@ -85,7 +85,14 @@ public class TransactionService {
                 .collect(Collectors.toList());
     }
 
-    // Don't handle exception in consumers will cause infinite retry
+    /**
+     * Sets a PENDING transaction to its final status.
+     * <p>
+     * Ignores results for unknown or already-final transactions. Errors are left to Kafka,
+     * which tries 10 times, then skips the record.
+     *
+     * @param transactionResultEvent
+     */
     public void updateTransactionStatus(TransactionResultEvent transactionResultEvent) {
         log.debug("Updating transaction status transactionId={} status={}", transactionResultEvent.getTransactionId(), transactionResultEvent.getStatus());
         Optional<Transaction> transactionOptional = this.transactionRepository.findById(transactionResultEvent.getTransactionId());

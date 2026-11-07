@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
-// Records transactions already applied so redelivered/retried events don't move balances twice
+// Saves each transaction's result so a repeated event doesn't move money twice.
 @Entity
 @Data
 @NoArgsConstructor

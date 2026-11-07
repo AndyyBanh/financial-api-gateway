@@ -74,8 +74,14 @@ public class AccountService {
                 .collect(Collectors.toList());
     }
 
-    // Exceptions propagate to the Kafka error handler, which retries and then dead-letters the event.
-    // Returns the outcome; a redelivered event returns its stored outcome without moving balances again.
+    /**
+     * Moves money for a transaction, at most once per transactionId.
+     * <p>
+     * Errors are left to the Kafka error handler. A repeated event returns the saved result.
+     *
+     * @param event
+     * @return COMPLETE, or FAILED if an account is missing or the balance is too low
+     */
     @Transactional
     public Status processTransaction(TransactionEvent event) {
         log.debug("Processing transaction transactionId={}", event.getTransactionId());

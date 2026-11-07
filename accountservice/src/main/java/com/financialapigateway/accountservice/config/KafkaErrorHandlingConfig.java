@@ -37,6 +37,19 @@ public class KafkaErrorHandlingConfig {
         return TopicBuilder.name(dltTopic).partitions(1).replicas(1).build();
     }
 
+    /**
+     * Error handler for every Kafka listener in this service.
+     * <p>
+     * Retries a failed record with a growing wait. Errors that won't fix themselves are not retried.
+     * When it gives up, {@link TransactionFailureRecoverer} sends the record to the DLT and reports
+     * it as FAILED. Records in the DLT are not retried.
+     *
+     * @param kafkaProperties Spring Boot's Kafka settings from application.yaml
+     * @param transactionResultProducer
+     * @param maxRetries
+     * @param initialInterval
+     * @param multiplier
+     */
     @Bean
     public DefaultErrorHandler kafkaErrorHandler(
             KafkaProperties kafkaProperties,
@@ -48,7 +61,7 @@ public class KafkaErrorHandlingConfig {
         DeadLetterPublishingRecoverer deadLetterRecoverer = new DeadLetterPublishingRecoverer(
                 dltTemplate(kafkaProperties),
                 (record, ex) -> {
-                    log.error("Sending key={} to {} after {}", record.key(), dltTopic, causeName(ex));
+                    log.error("Sending key={} to {} after {}", record.key(), dltTopic, innerExceptionName(ex));
                     return new TopicPartition(dltTopic, -1);
                 });
         TransactionFailureRecoverer recoverer = new TransactionFailureRecoverer(deadLetterRecoverer, transactionResultProducer);
@@ -61,18 +74,29 @@ public class KafkaErrorHandlingConfig {
         errorHandler.addNotRetryableExceptions(IllegalArgumentException.class, NullPointerException.class);
         // Log the record key (transactionId) and exception type only; values and messages can carry account data
         errorHandler.setRetryListeners((record, ex, deliveryAttempt) ->
-                log.warn("Delivery attempt {} failed for key={} ({})", deliveryAttempt, record.key(), causeName(ex)));
+                log.warn("Delivery attempt {} failed for key={} ({})", deliveryAttempt, record.key(), innerExceptionName(ex)));
         return errorHandler;
     }
 
-    // The listener's exception arrives wrapped in ListenerExecutionFailedException
-    private static String causeName(Exception ex) {
+    /**
+     * Returns the class name of the real error inside Spring's wrapper exception.
+     * Only the name is logged, because error messages can contain account data.
+     *
+     * @param ex
+     * @return the inner exception's class name, e.g. {@code ConnectException}
+     */
+    private static String innerExceptionName(Exception ex) {
         return NestedExceptionUtils.getMostSpecificCause(ex).getClass().getSimpleName();
     }
 
-    // Not a bean: a KafkaTemplate bean would disable Boot's auto-configured template used by TransactionResultProducer.
-    // Undeserializable records are republished as their raw bytes, everything else as JSON
-    // (type headers are disabled via spring.kafka.properties.spring.json.add.type.headers).
+    /**
+     * Builds the Kafka sender for the DLT. Unreadable records are sent as raw bytes, others as JSON.
+     * <p>
+     * Not a bean: a {@code KafkaTemplate} bean would replace the default one used by
+     * {@link TransactionResultProducer}.
+     *
+     * @param kafkaProperties Spring Boot's Kafka settings from application.yaml
+     */
     private KafkaTemplate<Object, Object> dltTemplate(KafkaProperties kafkaProperties) {
         Map<Class<?>, Serializer<?>> delegates = new LinkedHashMap<>();
         delegates.put(byte[].class, new ByteArraySerializer());

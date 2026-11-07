@@ -9,7 +9,7 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 
 import java.util.UUID;
 
-// Runs after retries are exhausted: dead-letter the record, then tell transaction service it failed.
+// Called when the error handler gives up on a record: sends it to the DLT and reports it as FAILED.
 @Slf4j
 public class TransactionFailureRecoverer implements ConsumerRecordRecoverer {
 
@@ -21,6 +21,14 @@ public class TransactionFailureRecoverer implements ConsumerRecordRecoverer {
         this.transactionResultProducer = transactionResultProducer;
     }
 
+    /**
+     * Sends the failed record to the DLT, then reports the transaction as FAILED.
+     * <p>
+     * If the DLT send fails, this throws so the record is tried again instead of lost.
+     *
+     * @param record
+     * @param exception
+     */
     @Override
     public void accept(ConsumerRecord<?, ?> record, Exception exception) {
         // Throws if the DLT publish fails, so the record is redelivered instead of being lost
