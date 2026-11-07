@@ -120,21 +120,39 @@ Tests don't need Docker. Each service's `contextLoads` test runs with the `test`
 
 ## Logging
 
-Services log through SLF4J (Lombok's `@Slf4j`), and Spring Boot's default Logback writes the output. This is the Java counterpart of .NET's `ILogger<T>`. Messages use `{}` placeholders, and errors pass the exception as the last argument so the stack trace is kept:
+Services log through SLF4J (Lombok's `@Slf4j`), and **Log4j2** writes the output. This is the Java counterpart of .NET's `ILogger<T>`. Each service's `log4j2.component.properties` sets `AsyncLoggerContextSelector`, so every logger is async: messages go onto an LMAX Disruptor ring buffer and request threads don't wait on log I/O. Spring Boot's default Logback is excluded from `spring-boot-starter`, and also from `spring-kafka-test` (ZooKeeper pulls it in), so the two backends can't clash on the classpath.
+
+Messages use `{}` placeholders, and errors pass the exception as the last argument so the stack trace is kept:
 
 ```java
 log.info("Fraud alert created transactionId={} reason={} severity={}", id, reason, severity);
 log.error("Error sending transaction event transactionId={}", id, ex);
 ```
 
+### Logging philosophy
+
+- **Log the start.** Every entry point (controller, service method, Kafka listener or producer) logs a `DEBUG` line with its identifiers when it starts, e.g. `Creating account userId=…` or `Producing transaction event transactionId=… topic=…`. Reactive code in the gateway does this in `doOnSubscribe`.
+- **Log errors where they happen.** `WARN` is for expected, handled failures (not found, insufficient balance, login failed). `ERROR` is for faults that need attention (a Kafka send failed, or a record went to the DLT). Each failure is logged once, with its identifiers, at the point where it's detected.
+- **Implicit returns.** Nothing logs "done", "sent" or "returned". If a start line has no `WARN`/`ERROR` after it, the operation succeeded. This keeps the success path quiet and cuts log volume.
+- **Exception: business state changes** log one `INFO` line as an audit trail: `Transaction processed`, `Transaction updated`, `Fraud alert created`, `User registered`, `User logged in`.
+
+```java
+log.debug("Getting account accountId={}", accountId);           // start
+Account account = accountRepository.findById(accountId).orElseThrow(() -> {
+    log.warn("Account not found accountId={}", accountId);      // error
+    return new AccountNotFoundException("account not found");
+});
+return mapToResponse(account);                                  // implicit return: no success log
+```
+
 | Level | Used for | Example |
 |---|---|---|
-| `DEBUG` | Step-by-step flow | `Received transaction event transactionId=…` |
-| `INFO` | Business outcomes | `Transaction processed transactionId=… status=COMPLETE` |
-| `WARN` | Unexpected but handled | `Delivery attempt 2 failed for key=… (RuntimeException)`, `JWT rejected: ExpiredJwtException`, `Rate limit exceeded ip=…` |
+| `DEBUG` | Start of an operation | `Creating transaction`, `Received transaction event transactionId=…` |
+| `INFO` | Business state changes | `Transaction processed transactionId=… status=COMPLETE` |
+| `WARN` | Expected failure, handled | `Account not found accountId=…`, `Insufficient balance for transactionId=…`, `Delivery attempt 2 failed for key=… (RuntimeException)`, `JWT rejected: ExpiredJwtException`, `Rate limit exceeded ip=…` |
 | `ERROR` | Failed, needs attention | `Sending key=… to transactions-dlt after RuntimeException` |
 
-Client errors handled by each `GlobalExceptionHandler` (404 not found, 409 already exists) aren't logged, because they aren't service faults.
+Each `GlobalExceptionHandler` only maps exceptions to responses (404 not found, 409 already exists) and doesn't log. The service has already logged the `WARN` before throwing, so the handler doesn't log the failure a second time.
 
 **Sensitive data:** logs carry identifiers only (`transactionId`, `alertId`, `userId`), plus enums and exception class names. They never include:
 - Event or DTO objects. They're Lombok `@Data`, so `toString()` prints account numbers, amounts, and the plaintext password in `LoginUserDto`/`RegisterUserDto`.
@@ -142,7 +160,7 @@ Client errors handled by each `GlobalExceptionHandler` (404 not found, 409 alrea
 - `FeignException` messages, which embed the downstream response body.
 - Output from loggers that dump data: Hikari `DEBUG` (pool config), `org.hibernate.orm.jdbc.bind` `TRACE` (SQL bind values), Feign `loggerLevel: FULL` (headers and bodies).
 
-App logs default to `INFO`. To turn on debug output for one service, add `logging.level.com.financialapigateway=DEBUG` to its `.env.local`, or set `LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY=DEBUG` in the container's environment. The `test` profile already runs app code at `DEBUG`.
+App logs default to `INFO`. To turn on debug output for one service, add `logging.level.com.financialapigateway=DEBUG` to its `.env.local`, or set `LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY=DEBUG` in the container's environment. Because start lines are `DEBUG`, this is how you trace a request step by step. The `test` profile already runs app code at `DEBUG`.
 
 ## Performance & Metrics
 
