@@ -162,6 +162,8 @@ Each `GlobalExceptionHandler` only maps exceptions to responses (404 not found, 
 
 App logs default to `INFO`. To turn on debug output for one service, add `logging.level.com.financialapigateway=DEBUG` to its `.env.local`, or set `LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY=DEBUG` in the container's environment. Because start lines are `DEBUG`, this is how you trace a request step by step. The `test` profile already runs app code at `DEBUG`.
 
+Framework logging is turned down so app logs stay readable. `org.apache.kafka` and `org.hibernate` are set to `WARN`, which hides the client config dumps and startup banners but keeps real problems. `spring.jpa.show-sql` is `false`, because it prints straight to stdout and log levels can't hide it. To see the generated SQL while debugging a query, add `LOGGING_LEVEL_ORG_HIBERNATE_SQL=DEBUG` to that service's `.env.local` and restart it.
+
 ## Performance & Metrics
 
 **Load testing (k6)** — `POST /api/v1/transactions`, 50 concurrent virtual users, 30s duration:
