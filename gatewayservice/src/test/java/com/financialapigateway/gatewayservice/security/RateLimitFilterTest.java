@@ -21,6 +21,7 @@ import reactor.test.StepVerifier;
 import java.net.InetSocketAddress;
 import java.util.function.Supplier;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -59,6 +60,7 @@ public class RateLimitFilterTest {
 
 
         when(this.proxyManager.builder()).thenReturn(this.bucketBuilder);
+        when(this.bucketBuilder.withOptimization(any())).thenReturn(this.bucketBuilder);
         when(this.bucketBuilder.build(anyString(), eq(this.bucketConfiguration))).thenReturn(this.bucket);
         when(this.bucket.tryConsumeAndReturnRemaining(1))
                 .thenReturn(ConsumptionProbe.consumed(4, 0));
@@ -76,6 +78,7 @@ public class RateLimitFilterTest {
         ServerWebExchange exchange = buildExchange();
 
         when(this.proxyManager.builder()).thenReturn(this.bucketBuilder);
+        when(this.bucketBuilder.withOptimization(any())).thenReturn(this.bucketBuilder);
         when(this.bucketBuilder.build(anyString(), eq(this.bucketConfiguration))).thenReturn(this.bucket);
         when(this.bucket.tryConsumeAndReturnRemaining(1))
                 .thenReturn(ConsumptionProbe.rejected(0, 60_000_000L, 0));
@@ -85,5 +88,22 @@ public class RateLimitFilterTest {
 
         verify(this.filterChain, never()).filter(any());
         assert exchange.getResponse().getStatusCode() == HttpStatus.TOO_MANY_REQUESTS;
+    }
+
+    @Test
+    void shouldReuseBucketForSameIp() {
+        when(this.proxyManager.builder()).thenReturn(this.bucketBuilder);
+        when(this.bucketBuilder.withOptimization(any())).thenReturn(this.bucketBuilder);
+        when(this.bucketBuilder.build(anyString(), eq(this.bucketConfiguration))).thenReturn(this.bucket);
+        when(this.bucket.tryConsumeAndReturnRemaining(1))
+                .thenReturn(ConsumptionProbe.consumed(4, 0), ConsumptionProbe.consumed(3, 0));
+        when(this.filterChain.filter(any())).thenReturn(Mono.empty());
+
+        StepVerifier.create(this.rateLimitFilter.filter(buildExchange(), this.filterChain)).verifyComplete();
+        StepVerifier.create(this.rateLimitFilter.filter(buildExchange(), this.filterChain)).verifyComplete();
+
+        // Built once, then reused so concurrent requests can be batched into one Redis call
+        verify(this.bucketBuilder, times(1)).build(anyString(), eq(this.bucketConfiguration));
+        verify(this.bucket, times(2)).tryConsumeAndReturnRemaining(1);
     }
 }

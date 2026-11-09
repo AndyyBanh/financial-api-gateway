@@ -1,11 +1,13 @@
 package com.financialapigateway.accountservice.kafka;
 
 import com.financialapigateway.accountservice.event.TransactionResultEvent;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 public class TransactionResultProducer {
 
@@ -21,12 +23,11 @@ public class TransactionResultProducer {
 
 
     public void send(TransactionResultEvent transactionResultEvent) {
+        log.debug("Producing transaction result transactionId={} status={} topic={}", transactionResultEvent.getTransactionId(), transactionResultEvent.getStatus(), topic);
         this.kafkaTemplate.send(topic, transactionResultEvent.getTransactionId().toString(), transactionResultEvent)
                 .whenComplete((result, ex) ->  {
                     if (ex != null) {
-                        System.out.println("Error sending transaction result" + transactionResultEvent.getTransactionId().toString());
-                    } else {
-                        System.out.println("Transaction sent successfully" + transactionResultEvent.getTransactionId().toString());
+                        log.error("Error sending transaction result transactionId={}", transactionResultEvent.getTransactionId(), ex);
                     }
                 });
     }

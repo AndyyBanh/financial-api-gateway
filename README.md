@@ -11,14 +11,13 @@ Took inspiration after completing J.P. Morgan simulation and decided to expand o
 - [Tech Stack](#tech-stack)
 - [Getting Started](#getting-started)
 - [Testing](#testing)
+- [Logging](#logging)
 - [Performance & Metrics](#performance--metrics)
 - [Current Limitations](#current-limitations)
 
 ## Overview
 
 This project simulates a financial transaction system split across four independently deployable services, communicating both synchronously (REST via Feign) and asynchronously (events via Kafka). A client interacts only with a single API Gateway, which handles authentication, rate limiting, and request routing to the appropriate downstream service.
-
-Core flow: a client creates a transaction → the Transaction Service validates the sender/recipient accounts and balance via Feign → the transaction is saved as `PENDING` and a Kafka event is published → the Account Service consumes the event and updates balances → the Fraud Service independently consumes the same event and evaluates fraud rules → the Account Service publishes a result event → the Transaction Service consumes the result and updates the transaction's final status.
 
 ## Architecture
 
@@ -35,13 +34,14 @@ Client → Gateway (rate limit filter → JWT auth filter → routing) → downs
 
 **Transaction flow (asynchronous, event-driven):**
 ```
-POST /transactions → Transaction Service validates via Feign → saves PENDING
-    → publishes TransactionEvent to "transactions" topic
-        → Account Service consumes (group: account-group) → updates balances
-            → publishes TransactionResultEvent to "transactions-results" topic
-                → Transaction Service consumes (group: transaction-group) → updates status
-        → Fraud Service consumes (group: fraud-group) → evaluates fraud rules
-            → creates FraudAlert if flagged (no result published back)
+POST /transactions → Transaction Service checks both accounts (Feign) → saves PENDING
+    → publishes TransactionEvent to "transactions"
+        → Account Service (account-group) → moves the money, at most once per transaction
+            → publishes TransactionResultEvent to "transaction-results"
+                → Transaction Service (transaction-group) → sets COMPLETE or FAILED
+        → Fraud Service (fraud-group) → checks fraud rules (calls Account and Transaction services)
+            → saves a FraudAlert if flagged
+Failed events are retried, then sent to "transactions-dlt" / "transaction-results-dlt".
 ```
 
 Each consumer group reads the same topic independently (Account Service and Fraud Service both receive every transaction event, but are responsible for different things)
@@ -70,7 +70,7 @@ git clone <repo-url>
 cd financial-api-gateway
 ```
 
-Each service requires its own `.env.local` file (not committed to source control). See `.env.example` in each service folder for required variables (database connection, Kafka bootstrap servers, JWT secret, Redis host).
+Each service requires its own `.env.local` file (not committed to source control). See `.env.example` in the project root for the required variables (database connection, Kafka bootstrap servers, JWT secret, Redis host).
 
 Start the full stack from the project root:
 
@@ -86,7 +86,7 @@ This starts all four services, four PostgreSQL instances, Redis, Kafka, and Zook
 # Register a user
 curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"alice@test.com","password":"password123","name":"Alice"}'
+  -d '{"email":"alice@test.com","password":"password123"}'
 
 # Login
 curl -X POST http://localhost:8080/api/v1/auth/login \
@@ -100,51 +100,53 @@ Use the returned JWT as a `Bearer` token for all subsequent requests.
 
 ## Testing
 
-Unit tests focus on business logic with real branching/decision paths, rather than pass-through CRUD:
+Unit tests focus on business logic with real branching/decision paths, rather than pass-through CRUD.
 
-- **Fraud detection rules** — large amount, high balance percentage, unusual frequency, severity classification, idempotency
-- **Account balance validation** — insufficient balance handling, account-not-found handling, successful balance updates
-- **Transaction validation** — Feign-based account/balance checks, status update handling
-- **JWT generation/validation** — token round-trip, expired token rejection
-- **Reactive authentication flow** — login/register tested with Reactor's `StepVerifier`
-- **Rate limiting** — token bucket allow/reject behavior
-
-Run tests per service:
 ```bash
-mvn test
+cd <service>   # accountservice | fraudservice | transactionservice | gatewayservice
+./mvnw test
 ```
+
+Tests don't need Docker: the `test` profile uses in-memory H2, embedded Kafka and a mocked Redis.
+
+## Logging
+
+Services log through SLF4J (`@Slf4j`) with async Log4j2, so request threads don't wait on log I/O.
+
+- **Log the start:** each entry point logs a `DEBUG` line with its IDs.
+- **Log failures once, where they happen:** `WARN` for expected failures, `ERROR` for faults that need attention.
+- **No "done" logs:** a start line with no `WARN`/`ERROR` after it means success.
+- **Business state changes** (transaction processed, fraud alert created, user registered...) log one `INFO` line.
+- **Logs carry IDs only:** never passwords, tokens, emails, account numbers, amounts or whole DTOs.
+
+| Level | Used for |
+|---|---|
+| `DEBUG` | Start of an operation |
+| `INFO` | Business state changes |
+| `WARN` | Expected failure, handled |
+| `ERROR` | Failed, needs attention |
+
+Default level is `INFO`. For a step-by-step trace, set `LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY=DEBUG` in a service's `.env.local`.
 
 ## Performance & Metrics
 
-**Load testing (k6)** — `POST /api/v1/transactions`, 50 concurrent virtual users, 30s duration:
+Load tested `POST /api/v1/transactions` through the gateway with k6, at fixed request rates. How to run it: [`loadtests/README.md`](loadtests/README.md).
 
-| Metric | Result |
-|---|---|
-| Total requests | 889 |
-| Success rate | 100% (0 failures) |
-| Median response time | 1.19s |
-| p95 response time | 5.88s |
+| Test | Requests | p50 | p95 | p99 | Errors |
+|---|---|---|---|---|---|
+| Steady 200 req/s, 2 min | 24,001 | 4.2 ms | 25.8 ms | 67.6 ms | 0% |
+| Stress 25 → 400 req/s, 5 min | 57,741 | 4.4 ms | 29.8 ms | 88.7 ms | 0% |
 
-All numbers were captured on a single local machine running the full stack (4 services, Kafka, Zookeeper, Redis, 4 PostgreSQL instances) inside Docker Desktop.
-Note: latency reflects shared local hardware contention under concurrent load, not network conditions.
+- **Hardware:** Apple M3, 8 GB RAM; full stack in Docker (8 CPUs, 4 GB); clean database for each run.
+- **At 400 req/s,** 8 requests (0.01%) were dropped, and the Fraud Service falls behind on events. The API stays fast because fraud checks run asynchronously.
+- **Key fixes:** batched rate-limit updates in Redis, security filters run once per request, role read from the JWT (no DB lookup), and an indexed time-window count for the fraud frequency rule.
 
-**Kafka end-to-end latency** — measured from event publish (Transaction Service) to balance update completion (Account Service), single-transaction trials:
-
-| Condition | Latency |
-|---|---|
-| Cold start (first request after `docker compose up`) | ~1.8s |
-| Steady-state average (post-warm-up) | ~492ms |
-
-The async pipeline introduces no latency to the client-facing API response — transactions return immediately as `PENDING`. The measured latency reflects how quickly the system reaches a consistent state (balance updated, fraud evaluated) afterward, not how long the client waits.
+**Kafka end-to-end** (publish → balance updated, single transactions): ~492 ms after warm-up, ~1.8 s cold start.
 
 ## Current Limitations
 
-- **Ownership-based authorization not fully enforced.** JWT authentication and role claims (USER/ADMIN) are implemented, but endpoint-level authorization currently relies on the client supplying correct path variables/query params rather than the backend verifying the authenticated user owns the requested resource (e.g., account, transaction). A production version would inject the authenticated `userId` from the JWT as a header at the gateway and verify resource ownership in each downstream service before returning data.
-
-- **No deposit/withdrawal flow.** The system is scoped to person-to-person transfers between existing funded accounts (Cash App-style), not traditional banking with external funding sources. Account funding for testing is done via direct database seeding rather than an API endpoint, by design.
-
-- **Fraud detection is rule-based, not ML-based.** Three simple rules (large absolute amount, high percentage of sender balance, unusual transaction frequency) are used to demonstrate the architecture and event-driven detection pattern, not to model real-world fraud detection sophistication.
-
-- **Single Kafka broker, single partition per topic.** Sufficient for local development and demonstrating async event-driven communication; would need multiple partitions and replication factor >1 across multiple brokers for production fault tolerance and throughput.
-
-- **No automated retry/dead-letter handling for Kafka consumer failures.** Consumers currently skip and log on missing data (e.g., account not found) rather than routing to a dead-letter topic for manual review — acceptable for this scope, but a production system would want that visibility.
+- **Ownership not enforced:** services trust the IDs the client sends; the gateway doesn't yet pass the JWT's user to check ownership.
+- **No deposits or withdrawals:** by design (person-to-person transfers); test accounts are funded with SQL.
+- **Rule-based fraud detection:** three simple rules, not ML.
+- **One Kafka broker, one partition per topic:** fine locally, but it limits throughput (the Fraud Service can't scale out) and has no failover.
+- **No dead-letter consumer:** failed events are retried, then parked in a DLT for manual replay.

@@ -10,10 +10,12 @@ import com.financialapigateway.gatewayservice.response.LoginUserResponse;
 import com.financialapigateway.gatewayservice.response.RegisterUserResponse;
 import com.financialapigateway.gatewayservice.security.JwtService;
 import com.financialapigateway.gatewayservice.security.Role;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -21,6 +23,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @Service
 public class AuthenticationService {
 
@@ -45,6 +48,11 @@ public class AuthenticationService {
     public Mono<RegisterUserResponse> register(RegisterUserDto input) {
         return checkIfUserExist(input.getEmail())
                 .then(Mono.defer(() -> createUser(input)))
+                .doOnSubscribe(subscription -> log.debug("Registering user"))
+                .doOnNext(userEntity -> log.info("User registered userId={}", userEntity.getUserId()))
+                // UserAlreadyExistsException is already logged in checkIfUserExist; anything else is a fault
+                .doOnError(ex -> !(ex instanceof UserAlreadyExistsException),
+                        ex -> log.error("Registration failed: {}", ex.getClass().getSimpleName()))
                 .map(userEntity -> new RegisterUserResponse(userEntity.getUserId(), userEntity.getEmail()));
     }
 
@@ -53,6 +61,7 @@ public class AuthenticationService {
     private Mono<Void> checkIfUserExist(String email) {
         return Mono.fromCallable(() -> {
             if (this.userRepository.existsByEmail(email)) {
+                log.warn("Registration rejected: user already exists");
                 throw new UserAlreadyExistsException("User already exists");
             }
             return null;
@@ -73,7 +82,17 @@ public class AuthenticationService {
 
     public Mono<LoginUserResponse> login(LoginUserDto input) {
         return findUserByEmail(input.getEmail())
-                .flatMap(userEntity -> authenticate(input))
+                .doOnSubscribe(subscription -> log.debug("Logging in user"))
+                .flatMap(userEntity -> authenticate(input)
+                        .doOnNext(authentication -> log.info("User logged in userId={}", userEntity.getUserId())))
+                .doOnError(ex -> {
+                    // Unknown user or bad credentials are expected; anything else is a fault
+                    if (ex instanceof UserNotFoundException || ex instanceof AuthenticationException) {
+                        log.warn("Login failed: {}", ex.getClass().getSimpleName());
+                    } else {
+                        log.error("Login failed: {}", ex.getClass().getSimpleName());
+                    }
+                })
                 .map(authentication -> buildLoginResponse(authentication, input.getEmail()));
     }
 

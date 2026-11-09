@@ -1,0 +1,37 @@
+# Load-test overrides. Use together with the main file:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --build
+# - Raises the gateway's per-IP rate limit so k6 (one IP) isn't throttled. The limiter still runs
+#   on every request, so its Redis round trip stays in the measured latency.
+# - Forces INFO logging so DEBUG lines from a local .env.local don't skew the numbers.
+# - Caps JVM/Kafka heaps so the whole stack fits in Docker Desktop's default ~4 GB VM; without this
+#   the JVMs size their heaps independently and the kernel OOM-kills one under load.
+x-java-heap: &java-heap
+  JAVA_TOOL_OPTIONS: -Xms256m -Xmx448m
+
+services:
+  gateway-service:
+    environment:
+      <<: *java-heap
+      RATE_LIMIT_CAPACITY: 10000000
+      RATE_LIMIT_REFILL_TOKENS: 10000000
+      RATE_LIMIT_REFILL_PERIOD: 1m
+      LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY: INFO
+
+  transaction-service:
+    environment:
+      <<: *java-heap
+      LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY: INFO
+
+  account-service:
+    environment:
+      <<: *java-heap
+      LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY: INFO
+
+  fraud-service:
+    environment:
+      <<: *java-heap
+      LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY: INFO
+
+  kafka:
+    environment:
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m

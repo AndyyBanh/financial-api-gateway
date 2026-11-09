@@ -10,15 +10,15 @@ import com.financialapigateway.fraudservice.feignclient.TransactionClient;
 import com.financialapigateway.fraudservice.repository.FraudAlertRepository;
 import com.financialapigateway.fraudservice.response.AccountResponse;
 import com.financialapigateway.fraudservice.response.FraudAlertResponse;
-import com.financialapigateway.fraudservice.response.TransactionResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 public class FraudAlertService {
 
@@ -34,15 +34,23 @@ public class FraudAlertService {
     }
 
     public FraudAlertResponse getFraudAlertByAlertId(UUID alertId) {
+        log.debug("Getting fraud alert alertId={}", alertId);
         FraudAlert alert = this.fraudAlertRepository.findById(alertId)
-                .orElseThrow(() -> new FraudAlertNotFoundException("Fraud Alert not found"));
+                .orElseThrow(() -> {
+                    log.warn("Fraud alert not found alertId={}", alertId);
+                    return new FraudAlertNotFoundException("Fraud Alert not found");
+                });
         return mapToResponse(alert);
     }
 
 
     public FraudAlertResponse getFraudAlertByTransactionId(UUID transactionId) {
+        log.debug("Getting fraud alert transactionId={}", transactionId);
         FraudAlert alert = this.fraudAlertRepository.findByTransactionId(transactionId)
-                .orElseThrow(() -> new FraudAlertNotFoundException("Fraud Alert not found"));
+                .orElseThrow(() -> {
+                    log.warn("Fraud alert not found transactionId={}", transactionId);
+                    return new FraudAlertNotFoundException("Fraud Alert not found");
+                });
         return mapToResponse(alert);
     }
 
@@ -54,23 +62,27 @@ public class FraudAlertService {
 
         Need Feign/rest template add later
         2. High percentage of balance (if amount exceeds 80% of sender balance)
-        3. Unusual freq (if more than 5 transactions within 10 minutes)
+        3. Unusual freq (if the sender sent 10 or more transactions within 10 minutes)
 
      */
     public void processTransaction(TransactionEvent event) {
-        // Check if alert already exists
+        log.debug("Checking transaction for fraud transactionId={}", event.getTransactionId());
         if (this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())) {
+            log.debug("Alert already exists, skipping transactionId={}", event.getTransactionId());
             return;
         }
 
         Reason reason = detectFraud(event);
 
-        if (reason != null) {
-            Severity severity = determineSeverity(reason);
-            FraudAlert alert = mapToEntity(reason, severity, event);
-            this.fraudAlertRepository.save(alert);
-            System.out.println("Fraud alert created for transaction " + event.getTransactionId());
+        if (reason == null) {
+            log.debug("No fraud detected transactionId={}", event.getTransactionId());
+            return;
         }
+
+        Severity severity = determineSeverity(reason);
+        FraudAlert alert = mapToEntity(reason, severity, event);
+        this.fraudAlertRepository.save(alert);
+        log.info("Fraud alert created transactionId={} reason={} severity={}", event.getTransactionId(), reason, severity);
     }
 
     @Value("${fraud.large-amount-threshold}")
@@ -107,12 +119,20 @@ public class FraudAlertService {
         return percentage >= 0.80f;
     }
 
+    /**
+     * Checks whether the sender sent too many transactions in a short time.
+     * <p>
+     * The Transaction Service counts the sender's transactions from the last frequencyWindow
+     * minutes and returns one number, not the full history. Received transactions don't count,
+     * and the count includes this transaction. The window ends when this check runs, not when the
+     * transaction was made, so if the consumer is behind the window can miss the transaction's time.
+     *
+     * @param event
+     * @return true if the sender sent frequencyLimit or more transactions in the window
+     */
     private boolean isUnusualFrequency(TransactionEvent event) {
-        List<TransactionResponse> recent = this.transactionClient.getAllTransactionsByAccountNumber(event.getSenderId(), null);
-        long recentCount = recent.stream()
-                .filter(t -> t.getCreationDate()
-                        .isAfter(LocalDateTime.now().minusMinutes(this.frequencyWindow)))
-                .count();
+        LocalDateTime since = LocalDateTime.now().minusMinutes(this.frequencyWindow);
+        long recentCount = this.transactionClient.countSentTransactionsSince(event.getSenderId(), since.toString());
 
         return recentCount >= frequencyLimit;
     }

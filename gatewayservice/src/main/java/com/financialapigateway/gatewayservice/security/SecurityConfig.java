@@ -1,5 +1,7 @@
 package com.financialapigateway.gatewayservice.security;
 
+import io.github.bucket4j.BucketConfiguration;
+import io.github.bucket4j.distributed.proxy.ProxyManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,6 +20,7 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Supplier;
 
 @Configuration
 @EnableWebFluxSecurity
@@ -27,11 +30,13 @@ public class SecurityConfig {
     private final JwtAuthEntryPoint authEntryPoint;
     private final RateLimitFilter rateLimitFilter;
 
+    // The filters are created here, not as beans, so each one runs once per request (inside the security chain only)
     @Autowired
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, JwtAuthEntryPoint authEntryPoint, RateLimitFilter rateLimitFilter) {
+    public SecurityConfig(JwtService jwtService, JwtAuthEntryPoint authEntryPoint,
+                          ProxyManager<String> proxyManager, Supplier<BucketConfiguration> bucketConfiguration) {
         this.authEntryPoint = authEntryPoint;
-        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-        this.rateLimitFilter = rateLimitFilter;
+        this.jwtAuthenticationFilter = new JwtAuthenticationFilter(jwtService);
+        this.rateLimitFilter = new RateLimitFilter(proxyManager, bucketConfiguration);
     }
 
     @Bean

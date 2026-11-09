@@ -2,6 +2,14 @@ general:
   kafka-topic:
     transactions: transactions
     transaction-results: transaction-results
+    transaction-results-dlt: transaction-results-dlt
+  kafka:
+    retry:
+      max-retries: 3
+      initial-interval: 1000
+      multiplier: 2.0
+  account-lookup:
+    threads: 64
 services:
   account-service:
     url: http://account-service:8082
@@ -16,7 +24,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     database: POSTGRESQL
-    show-sql: true
+    show-sql: false
     hibernate:
       ddl-auto: update
     database-platform: org.hibernate.dialect.PostgreSQLDialect
@@ -29,14 +37,27 @@ spring:
     consumer:
       group-id: transaction-group
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
         spring.json.trusted.packages: "*"
         spring.json.value.default.type: com.financialapigateway.transactionservice.event.TransactionResultEvent
       auto-offset-reset: earliest
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
   config:
     import: optional:file:.env.local[.properties]
+  cloud:
+    openfeign:
+      httpclient:
+        # Pooled, kept-alive connections to the Account Service (Apache HttpClient 5, feign-hc5)
+        max-connections: 200
+        max-connections-per-route: 200
 
 server:
   port: 8081
+
+logging:
+  level:
+    com.financialapigateway: INFO
+    org.apache.kafka: WARN
+    org.hibernate: WARN

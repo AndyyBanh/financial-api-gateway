@@ -1,0 +1,25 @@
+# Activated by @ActiveProfiles("test"); overrides the Docker-only hosts and real secrets from .env.local
+spring:
+  datasource:
+    url: jdbc:h2:mem:gatewaydb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    database: H2
+    database-platform: org.hibernate.dialect.H2Dialect
+    show-sql: false
+    hibernate:
+      ddl-auto: create-drop
+  data:
+    redis:
+      # Never connected to: the test mocks the Bucket4j ProxyManager that would open the connection
+      host: localhost
+
+# Dummy values so tests never use the real JWT secret (same key as JwtServiceTest)
+JWT_SECRET_KEY: ZmluYW5jaWFsLWFwaS1nYXRld2F5LXNlY3JldC1rZXktZm9yLXRlc3Rpbmctb25seQ==
+JWT_EXPIRATION: 3600000
+
+logging:
+  level:
+    com.financialapigateway: DEBUG

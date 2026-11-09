@@ -1,25 +1,30 @@
 package com.financialapigateway.gatewayservice.security;
 
+import io.jsonwebtoken.Claims;
 import lombok.NonNull;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
-import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-@Component
+import java.util.List;
+
+/**
+ * Not a @Component: Spring WebFlux runs every WebFilter bean globally, so a bean would run twice
+ * per request (globally and again in the security chain). SecurityConfig creates it instead.
+ */
+@Slf4j
 public class JwtAuthenticationFilter implements WebFilter {
 
     private final JwtService jwtService;
-    private final CustomUserDetailsService customUserDetailsService;
 
-    public JwtAuthenticationFilter(JwtService jwtService, CustomUserDetailsService customUserDetailsService) {
+    public JwtAuthenticationFilter(JwtService jwtService) {
         this.jwtService = jwtService;
-        this.customUserDetailsService = customUserDetailsService;
     }
 
 
@@ -39,24 +44,26 @@ public class JwtAuthenticationFilter implements WebFilter {
 
         try {
             String jwt = authHeader.substring(7);
-            String email = this.jwtService.getEmailFromJWT(jwt);
+            // One signature + expiry check per request
+            Claims claims = this.jwtService.parseClaims(jwt);
+            String email = claims.getSubject();
+            String role = claims.get(JwtService.ROLE_CLAIM, String.class);
 
-           if (email == null || !this.jwtService.validateToken(jwt)) {
-               exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-               return exchange.getResponse().setComplete();
-           }
+            if (email == null || role == null) {
+                exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+                return exchange.getResponse().setComplete();
+            }
 
-           return this.customUserDetailsService.findByUsername(email)
-                   .flatMap(userDetails -> {
-                       UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
-                               userDetails,
-                               null,
-                               userDetails.getAuthorities()
-                       );
-                       return chain.filter(exchange)
-                               .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authenticationToken));
-                   });
+            // The role is inside the signed token, so no database lookup is needed
+            UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
+                    email,
+                    null,
+                    List.of(new SimpleGrantedAuthority("ROLE_" + role))
+            );
+            return chain.filter(exchange)
+                    .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authenticationToken));
         } catch (Exception e) {
+            log.warn("JWT rejected: {}", e.getClass().getSimpleName());
             exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
             return exchange.getResponse().setComplete();
         }

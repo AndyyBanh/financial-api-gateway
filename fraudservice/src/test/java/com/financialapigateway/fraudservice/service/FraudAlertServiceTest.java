@@ -1,5 +1,6 @@
 package com.financialapigateway.fraudservice.service;
 
+import com.financialapigateway.fraudservice.entity.FraudAlert;
 import com.financialapigateway.fraudservice.enumeration.Reason;
 import com.financialapigateway.fraudservice.enumeration.Severity;
 import com.financialapigateway.fraudservice.event.TransactionEvent;
@@ -7,7 +8,6 @@ import com.financialapigateway.fraudservice.feignclient.AccountClient;
 import com.financialapigateway.fraudservice.feignclient.TransactionClient;
 import com.financialapigateway.fraudservice.repository.FraudAlertRepository;
 import com.financialapigateway.fraudservice.response.AccountResponse;
-import com.financialapigateway.fraudservice.response.TransactionResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,11 +17,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,10 +59,7 @@ public class FraudAlertServiceTest {
 
         this.fraudAlertService.processTransaction(event);
 
-        verify(this.fraudAlertRepository).save(argThat(alert ->
-                alert.getReason() == Reason.LARGE_AMOUNT
-                && alert.getSeverity() == Severity.HIGH
-        ));
+        verify(this.fraudAlertRepository).save(alertWith(Reason.LARGE_AMOUNT, Severity.HIGH));
         verifyNoInteractions(this.accountClient, this.transactionClient);
     }
 
@@ -82,10 +79,7 @@ public class FraudAlertServiceTest {
 
         this.fraudAlertService.processTransaction(event);
 
-        verify(this.fraudAlertRepository).save(argThat(alert ->
-                alert.getReason() == Reason.SUSPICIOUS_PATTERN
-                && alert.getSeverity() == Severity.MEDIUM
-        ));
+        verify(this.fraudAlertRepository).save(alertWith(Reason.SUSPICIOUS_PATTERN, Severity.MEDIUM));
 
         verifyNoInteractions(this.transactionClient);
     }
@@ -102,23 +96,19 @@ public class FraudAlertServiceTest {
         AccountResponse sender = new AccountResponse();
         sender.setBalance(100f);
 
-        List<TransactionResponse> transactions = new ArrayList<>();
-        for (int i = 0; i < 10; i++) {
-            TransactionResponse transaction = new TransactionResponse();
-            transaction.setCreationDate(LocalDateTime.now().minusMinutes(1));
-            transactions.add(transaction);
-        }
-
+        LocalDateTime before = LocalDateTime.now();
         when(this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())).thenReturn(false);
         when(this.accountClient.getAccountByAccountNumber(event.getSenderId())).thenReturn(sender);
-        when(this.transactionClient.getAllTransactionsByAccountNumber(event.getSenderId(), null)).thenReturn(transactions);
+        when(this.transactionClient.countSentTransactionsSince(eq(event.getSenderId()), anyString())).thenReturn(10L);
 
         this.fraudAlertService.processTransaction(event);
 
-        verify(this.fraudAlertRepository).save(argThat(alert ->
-                alert.getReason() == Reason.UNUSUAL_FREQUENCY
-                && alert.getSeverity() == Severity.LOW
-        ));
+        verify(this.fraudAlertRepository).save(alertWith(Reason.UNUSUAL_FREQUENCY, Severity.LOW));
+        // Asks for the count over the last 10 minutes (frequencyWindow)
+        verify(this.transactionClient).countSentTransactionsSince(eq(event.getSenderId()), argThat(since -> {
+            LocalDateTime windowStart = LocalDateTime.parse(since);
+            return !windowStart.isBefore(before.minusMinutes(10)) && !windowStart.isAfter(LocalDateTime.now().minusMinutes(10));
+        }));
     }
 
     @Test
@@ -134,7 +124,7 @@ public class FraudAlertServiceTest {
 
         when(this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())).thenReturn(false);
         when(this.accountClient.getAccountByAccountNumber(event.getSenderId())).thenReturn(sender);
-        when(this.transactionClient.getAllTransactionsByAccountNumber(event.getSenderId(), null)).thenReturn(List.of());
+        when(this.transactionClient.countSentTransactionsSince(eq(event.getSenderId()), anyString())).thenReturn(9L);
 
         this.fraudAlertService.processTransaction(event);
 
@@ -152,5 +142,9 @@ public class FraudAlertServiceTest {
 
         verify(this.fraudAlertRepository, never()).save(any());
         verifyNoInteractions(this.accountClient, this.transactionClient);
+    }
+
+    private static FraudAlert alertWith(Reason reason, Severity severity) {
+        return argThat(alert -> alert.getReason() == reason && alert.getSeverity() == severity);
     }
 }

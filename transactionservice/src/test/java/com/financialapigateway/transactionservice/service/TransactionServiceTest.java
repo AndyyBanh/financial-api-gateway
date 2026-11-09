@@ -3,6 +3,7 @@ package com.financialapigateway.transactionservice.service;
 import com.financialapigateway.transactionservice.dto.TransactionDto;
 import com.financialapigateway.transactionservice.entity.Transaction;
 import com.financialapigateway.transactionservice.enumeration.Status;
+import com.financialapigateway.transactionservice.event.TransactionEvent;
 import com.financialapigateway.transactionservice.event.TransactionResultEvent;
 import com.financialapigateway.transactionservice.exceptions.AccountNotFoundException;
 import com.financialapigateway.transactionservice.exceptions.InsufficientBalanceException;
@@ -11,15 +12,17 @@ import com.financialapigateway.transactionservice.kafka.TransactionProducer;
 import com.financialapigateway.transactionservice.repository.TransactionRepository;
 import com.financialapigateway.transactionservice.response.AccountResponse;
 import feign.FeignException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
@@ -35,8 +38,13 @@ public class TransactionServiceTest {
     @Mock
     private AccountClient accountClient;
 
-    @InjectMocks
     private TransactionService transactionService;
+
+    @BeforeEach
+    void setUp() {
+        // Same-thread executor so the async recipient lookup runs inline in tests
+        this.transactionService = new TransactionService(this.transactionRepository, this.transactionProducer, this.accountClient, Runnable::run);
+    }
 
     @Test
     void shouldThrowAccountNotFoundExceptionWhenAccountNotFound() {
@@ -46,6 +54,8 @@ public class TransactionServiceTest {
 
         when(this.accountClient.getAccountByAccountNumber(input.getSenderId()))
                 .thenThrow(FeignException.NotFound.class);
+        // Both lookups now start together, so the recipient is looked up too
+        when(this.accountClient.getAccountByAccountNumber(input.getRecipientId())).thenReturn(new AccountResponse());
 
         assertThrows(AccountNotFoundException.class, () -> this.transactionService.createTransaction(input));
 
@@ -93,19 +103,8 @@ public class TransactionServiceTest {
 
         this.transactionService.createTransaction(input);
 
-        verify(this.transactionRepository).save(argThat(transaction ->
-                transaction.getSenderId().equals(input.getSenderId())
-                && transaction.getRecipientId().equals(input.getRecipientId())
-                && transaction.getAmount() == 50f
-                && transaction.getStatus() == Status.PENDING
-        ));
-
-        verify(this.transactionProducer).send(argThat(event ->
-                    event.getSenderId().equals(input.getSenderId())
-                && event.getRecipientId().equals(input.getRecipientId())
-                && event.getAmount() == 50f
-                && event.getStatus() == Status.PENDING
-        ));
+        verify(this.transactionRepository).save(pendingTransactionFor(input));
+        verify(this.transactionProducer).send(pendingEventFor(input));
     }
     
     @Test
@@ -136,9 +135,64 @@ public class TransactionServiceTest {
 
         this.transactionService.updateTransactionStatus(event);
 
-        verify(this.transactionRepository).save(argThat(res ->
-            res.getTransactionId().equals(event.getTransactionId())
-            &&    res.getStatus() == Status.COMPLETE
-        ));
+        verify(this.transactionRepository).save(transactionWith(event.getTransactionId(), Status.COMPLETE));
+    }
+
+    @Test
+    void shouldNotOverwriteFinalizedTransaction() {
+        TransactionResultEvent event = new TransactionResultEvent();
+        event.setTransactionId(UUID.randomUUID());
+        event.setStatus(Status.FAILED);
+
+        Transaction transaction = new Transaction();
+        transaction.setTransactionId(event.getTransactionId());
+        transaction.setStatus(Status.COMPLETE);
+        when(this.transactionRepository.findById(event.getTransactionId())).thenReturn(Optional.of(transaction));
+
+        this.transactionService.updateTransactionStatus(event);
+
+        assertEquals(Status.COMPLETE, transaction.getStatus());
+        verify(this.transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldThrowAccountNotFoundExceptionWhenRecipientNotFound() {
+        TransactionDto input = new TransactionDto();
+        input.setSenderId("123");
+        input.setRecipientId("321");
+
+        when(this.accountClient.getAccountByAccountNumber(input.getSenderId())).thenReturn(new AccountResponse());
+        when(this.accountClient.getAccountByAccountNumber(input.getRecipientId()))
+                .thenThrow(FeignException.NotFound.class);
+
+        assertThrows(AccountNotFoundException.class, () -> this.transactionService.createTransaction(input));
+
+        verify(this.transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldCountSentTransactionsSince() {
+        LocalDateTime since = LocalDateTime.now().minusMinutes(10);
+        when(this.transactionRepository.countBySenderIdAndCreatedAtAfter("123", since)).thenReturn(7L);
+
+        assertEquals(7L, this.transactionService.countSentTransactionsSince("123", since));
+    }
+
+    private static Transaction pendingTransactionFor(TransactionDto input) {
+        return argThat(transaction -> transaction.getSenderId().equals(input.getSenderId())
+                && transaction.getRecipientId().equals(input.getRecipientId())
+                && transaction.getAmount() == input.getAmount()
+                && transaction.getStatus() == Status.PENDING);
+    }
+
+    private static TransactionEvent pendingEventFor(TransactionDto input) {
+        return argThat(event -> event.getSenderId().equals(input.getSenderId())
+                && event.getRecipientId().equals(input.getRecipientId())
+                && event.getAmount() == input.getAmount()
+                && event.getStatus() == Status.PENDING);
+    }
+
+    private static Transaction transactionWith(UUID transactionId, Status status) {
+        return argThat(transaction -> transaction.getTransactionId().equals(transactionId) && transaction.getStatus() == status);
     }
 }
