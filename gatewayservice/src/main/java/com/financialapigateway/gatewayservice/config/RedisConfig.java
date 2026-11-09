@@ -9,6 +9,7 @@ import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.codec.ByteArrayCodec;
 import io.lettuce.core.codec.RedisCodec;
 import io.lettuce.core.codec.StringCodec;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -34,10 +35,17 @@ public class RedisConfig {
                 ).build();
     }
 
+    /**
+     * Per-IP limit, read from {@code rate-limit.*} in application.yaml (default 5 requests per 5 minutes).
+     * The load-test compose override raises it so k6 isn't throttled; the limiter still runs on every request.
+     */
     @Bean
-    public Supplier<BucketConfiguration> bucketConfiguration() {
+    public Supplier<BucketConfiguration> bucketConfiguration(
+            @Value("${rate-limit.capacity}") long capacity,
+            @Value("${rate-limit.refill-tokens}") long refillTokens,
+            @Value("${rate-limit.refill-period}") Duration refillPeriod) {
         return () -> BucketConfiguration.builder()
-                .addLimit(limit -> limit.capacity(5L).refillIntervally(5L, Duration.ofMinutes(5L)))
+                .addLimit(limit -> limit.capacity(capacity).refillIntervally(refillTokens, refillPeriod))
                 .build();
     }
 

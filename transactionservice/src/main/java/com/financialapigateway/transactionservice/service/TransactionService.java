@@ -16,12 +16,16 @@ import com.financialapigateway.transactionservice.response.TransactionResponse;
 import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -31,21 +35,27 @@ public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final TransactionProducer transactionProducer;
     private final AccountClient accountClient;
+    private final Executor accountLookupExecutor;
 
     @Autowired
-    public TransactionService(TransactionRepository transactionRepository,  TransactionProducer transactionProducer, AccountClient accountClient) {
+    public TransactionService(TransactionRepository transactionRepository,  TransactionProducer transactionProducer, AccountClient accountClient,
+                              @Qualifier("accountLookupExecutor") Executor accountLookupExecutor) {
         this.transactionRepository = transactionRepository;
         this.transactionProducer = transactionProducer;
         this.accountClient = accountClient;
+        this.accountLookupExecutor = accountLookupExecutor;
     }
 
     public TransactionResponse createTransaction(TransactionDto input) {
         log.debug("Creating transaction");
         AccountResponse sender;
         AccountResponse receiver;
+        // Recipient lookup runs on another thread while this thread looks up the sender
+        CompletableFuture<AccountResponse> receiverLookup = CompletableFuture.supplyAsync(
+                () -> this.accountClient.getAccountByAccountNumber(input.getRecipientId()), this.accountLookupExecutor);
         try {
             sender = this.accountClient.getAccountByAccountNumber(input.getSenderId());
-            receiver = this.accountClient.getAccountByAccountNumber(input.getRecipientId());
+            receiver = joinLookup(receiverLookup);
         } catch (FeignException.NotFound ex) {
             log.warn("Sender or recipient account not found for new transaction");
             throw new AccountNotFoundException("Account not found");
@@ -86,6 +96,20 @@ public class TransactionService {
     }
 
     /**
+     * Counts the transactions an account sent after the given time.
+     * <p>
+     * Used by the Fraud Service's frequency rule, so it gets one number instead of the full history.
+     *
+     * @param senderId account number of the sender
+     * @param since only transactions created after this time are counted
+     * @return number of matching transactions
+     */
+    public long countSentTransactionsSince(String senderId, LocalDateTime since) {
+        log.debug("Counting sent transactions since={}", since);
+        return this.transactionRepository.countBySenderIdAndCreatedAtAfter(senderId, since);
+    }
+
+    /**
      * Sets a PENDING transaction to its final status.
      * <p>
      * Ignores results for unknown or already-final transactions. Errors are left to the Kafka
@@ -108,6 +132,18 @@ public class TransactionService {
             log.info("Transaction updated transactionId={} status={}", transactionResultEvent.getTransactionId(), transactionResultEvent.getStatus());
         } else {
             log.warn("Transaction not found for status update transactionId={}", transactionResultEvent.getTransactionId());
+        }
+    }
+
+    // Waits for an async lookup and rethrows its original exception (e.g. FeignException.NotFound)
+    private AccountResponse joinLookup(CompletableFuture<AccountResponse> lookup) {
+        try {
+            return lookup.join();
+        } catch (CompletionException ex) {
+            if (ex.getCause() instanceof RuntimeException cause) {
+                throw cause;
+            }
+            throw ex;
         }
     }
 

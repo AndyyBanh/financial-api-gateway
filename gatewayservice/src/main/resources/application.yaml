@@ -40,10 +40,15 @@ spring:
 
 
 
+rate-limit:
+  capacity: ${RATE_LIMIT_CAPACITY:5}
+  refill-tokens: ${RATE_LIMIT_REFILL_TOKENS:5}
+  refill-period: ${RATE_LIMIT_REFILL_PERIOD:5m}
+
 server:
   port: 8080
 
 logging:
   level:
-    com.financialapigateway: INFO   # prod-safe default; set LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY=DEBUG in .env.local for dev
-    org.hibernate: WARN             # HHH000xxx startup banners
+    com.financialapigateway: INFO
+    org.hibernate: WARN

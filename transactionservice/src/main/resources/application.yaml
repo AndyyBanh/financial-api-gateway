@@ -8,6 +8,8 @@ general:
       max-retries: 3
       initial-interval: 1000
       multiplier: 2.0
+  account-lookup:
+    threads: 64
 services:
   account-service:
     url: http://account-service:8082
@@ -44,12 +46,18 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
   config:
     import: optional:file:.env.local[.properties]
+  cloud:
+    openfeign:
+      httpclient:
+        # Pooled, kept-alive connections to the Account Service (Apache HttpClient 5, feign-hc5)
+        max-connections: 200
+        max-connections-per-route: 200
 
 server:
   port: 8081
 
 logging:
   level:
-    com.financialapigateway: INFO   # prod-safe default; set LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY=DEBUG in .env.local for dev
-    org.apache.kafka: WARN          # client config dumps, AppInfoParser, Metadata, metrics
-    org.hibernate: WARN             # HHH000xxx startup banners
+    com.financialapigateway: INFO
+    org.apache.kafka: WARN
+    org.hibernate: WARN

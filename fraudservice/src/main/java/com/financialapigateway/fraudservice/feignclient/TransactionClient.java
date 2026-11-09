@@ -14,4 +14,8 @@ public interface TransactionClient {
     @GetMapping("/api/v1/transactions")
     List<TransactionResponse> getAllTransactionsByAccountNumber(@RequestParam(required = true) String accountNumber,
                                                                 @RequestParam(required = false) Status status);
+
+    @GetMapping("/api/v1/transactions/count")
+    long countSentTransactionsSince(@RequestParam(required = true) String senderId,
+                                    @RequestParam(required = true) String since);
 }

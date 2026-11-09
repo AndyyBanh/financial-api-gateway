@@ -15,7 +15,8 @@ import java.util.UUID;
 @AllArgsConstructor
 @Table(name = "transactions", indexes = {
         @Index(name = "idx_transactions_sender_id", columnList = "senderId"),
-        @Index(name = "idx_transactions_recipient_id", columnList = "recipientId")
+        @Index(name = "idx_transactions_recipient_id", columnList = "recipientId"),
+        @Index(name = "idx_transactions_sender_id_created_at", columnList = "senderId, createdAt")
 })
 public class Transaction {
 

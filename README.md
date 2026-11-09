@@ -166,17 +166,28 @@ Framework logging is turned down so app logs stay readable. `org.apache.kafka` a
 
 ## Performance & Metrics
 
-**Load testing (k6)** — `POST /api/v1/transactions`, 50 concurrent virtual users, 30s duration:
+**Load testing (k6)**: `POST /api/v1/transactions`, sent through the gateway (rate limiter, JWT auth, routing, account lookups, DB insert, Kafka publish). k6 used constant arrival rates (an open model), so the req/s numbers are real throughput. Setup and commands are in [`loadtests/README.md`](loadtests/README.md).
 
-| Metric | Result |
-|---|---|
-| Total requests | 889 |
-| Success rate | 100% (0 failures) |
-| Median response time | 1.19s |
-| p95 response time | 5.88s |
+| Test | Requests | Throughput | p50 | p95 | p99 | Errors |
+|---|---|---|---|---|---|---|
+| Load: fixed 200 req/s for 2 min | 24,001 | 199.8 req/s | 4.2 ms | 25.8 ms | 67.6 ms | 0% |
+| Stress: ramp 25 → 400 req/s over 5 min | 57,741 | peak 400 req/s | 4.4 ms | 29.8 ms | 88.7 ms | 0% |
 
-All numbers were captured on a single local machine running the full stack (4 services, Kafka, Zookeeper, Redis, 4 PostgreSQL instances) inside Docker Desktop.
-Note: latency reflects shared local hardware contention under concurrent load, not network conditions.
+- At the 200 req/s level, every pass/fail rule passed: no dropped requests, p95 < 300 ms, p99 < 800 ms, and fewer than 1% errors.
+- In the stress run, 8 of 57,750 scheduled requests (0.01%) were dropped near the 400 req/s peak, because k6 had no free virtual user at that moment.
+- The async pipeline keeps up at 200 req/s: Kafka consumer lag stayed near 0. At 400 req/s, the Fraud Service falls behind (about 24k events of lag by the end) while the API's response times stay the same.
+
+How the numbers were captured:
+- Everything ran on one machine: an Apple M3 with 8 GB RAM. The full stack (4 services, Kafka, Zookeeper, Redis, 4 PostgreSQL instances) ran in Docker Desktop with 8 CPUs and about 4 GB of memory, and k6 ran on the same machine.
+- Every run started from a clean database, after a 30-second warm-up.
+- The `docker-compose.loadtest.yml` override was used. It raises the per-IP rate limit, because k6 sends everything from one IP (the limiter still runs on every request). It also sets INFO logging and caps JVM heaps.
+
+Changes that made these numbers possible:
+- **Rate limiter:** each IP's Bucket4j bucket is now reused with request batching. Before, concurrent requests from the same IP raced on one Redis key with compare-and-swap and retried dozens of times per request.
+- **Gateway filters:** the rate-limit and JWT filters each ran twice per request, because they were registered both globally and in the security chain. They now run once.
+- **JWT:** the gateway authenticates from a `role` claim in the signed token instead of querying the database on every request, and verifies the token once instead of twice.
+- **Fraud check:** the "unusual frequency" rule uses an indexed count of the sender's transactions in the time window (`GET /api/v1/transactions/count`). Before, it downloaded the account's entire transaction history on every event.
+- **Transaction creation:** the sender and recipient lookups run at the same time, over pooled HTTP connections (`feign-hc5`).
 
 **Kafka end-to-end latency** — measured from event publish (Transaction Service) to balance update completion (Account Service), single-transaction trials:
 

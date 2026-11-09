@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -17,4 +18,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     "AND t.status = :status")
     List<Transaction> findByAccountNumberAndStatus(@Param("accountNumber") String accountNumber,
                                                    @Param("status") Status status);
+
+    long countBySenderIdAndCreatedAtAfter(String senderId, LocalDateTime since);
 }

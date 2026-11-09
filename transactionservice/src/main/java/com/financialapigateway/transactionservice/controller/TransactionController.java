@@ -6,9 +6,11 @@ import com.financialapigateway.transactionservice.response.TransactionResponse;
 import com.financialapigateway.transactionservice.service.TransactionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,6 +36,15 @@ public class TransactionController {
     public ResponseEntity<TransactionResponse> getTransactionByTransactionId(@PathVariable("transactionId") UUID transactionId) {
         log.debug("Received get transaction request transactionId={}", transactionId);
         return ResponseEntity.ok(this.transactionService.getTransactionById(transactionId));
+    }
+
+    @GetMapping("/count")
+    public ResponseEntity<Long> countSentTransactionsSince(
+            @RequestParam(required = true) String senderId,
+            @RequestParam(required = true) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime since
+    ) {
+        log.debug("Received count sent transactions request since={}", since);
+        return ResponseEntity.ok(this.transactionService.countSentTransactionsSince(senderId, since));
     }
 
     @GetMapping()

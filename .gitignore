@@ -46,3 +46,6 @@ logs/
 
 ### Docker ###
 docker-compose.override.yml
+
+### Load test results ###
+loadtests/results/

@@ -12,12 +12,13 @@ import com.financialapigateway.transactionservice.kafka.TransactionProducer;
 import com.financialapigateway.transactionservice.repository.TransactionRepository;
 import com.financialapigateway.transactionservice.response.AccountResponse;
 import feign.FeignException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,8 +38,13 @@ public class TransactionServiceTest {
     @Mock
     private AccountClient accountClient;
 
-    @InjectMocks
     private TransactionService transactionService;
+
+    @BeforeEach
+    void setUp() {
+        // Same-thread executor so the async recipient lookup runs inline in tests
+        this.transactionService = new TransactionService(this.transactionRepository, this.transactionProducer, this.accountClient, Runnable::run);
+    }
 
     @Test
     void shouldThrowAccountNotFoundExceptionWhenAccountNotFound() {
@@ -48,6 +54,8 @@ public class TransactionServiceTest {
 
         when(this.accountClient.getAccountByAccountNumber(input.getSenderId()))
                 .thenThrow(FeignException.NotFound.class);
+        // Both lookups now start together, so the recipient is looked up too
+        when(this.accountClient.getAccountByAccountNumber(input.getRecipientId())).thenReturn(new AccountResponse());
 
         assertThrows(AccountNotFoundException.class, () -> this.transactionService.createTransaction(input));
 
@@ -145,6 +153,29 @@ public class TransactionServiceTest {
 
         assertEquals(Status.COMPLETE, transaction.getStatus());
         verify(this.transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldThrowAccountNotFoundExceptionWhenRecipientNotFound() {
+        TransactionDto input = new TransactionDto();
+        input.setSenderId("123");
+        input.setRecipientId("321");
+
+        when(this.accountClient.getAccountByAccountNumber(input.getSenderId())).thenReturn(new AccountResponse());
+        when(this.accountClient.getAccountByAccountNumber(input.getRecipientId()))
+                .thenThrow(FeignException.NotFound.class);
+
+        assertThrows(AccountNotFoundException.class, () -> this.transactionService.createTransaction(input));
+
+        verify(this.transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldCountSentTransactionsSince() {
+        LocalDateTime since = LocalDateTime.now().minusMinutes(10);
+        when(this.transactionRepository.countBySenderIdAndCreatedAtAfter("123", since)).thenReturn(7L);
+
+        assertEquals(7L, this.transactionService.countSentTransactionsSince("123", since));
     }
 
     private static Transaction pendingTransactionFor(TransactionDto input) {
