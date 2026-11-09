@@ -46,6 +46,6 @@ server:
 
 logging:
   level:
-    com.financialapigateway: INFO   # prod-safe default; set LOGGING_LEVEL_COM_FINANCIALAPIGATEWAY=DEBUG in .env.local for dev
-    org.apache.kafka: WARN          # client config dumps, AppInfoParser, Metadata, metrics
-    org.hibernate: WARN             # HHH000xxx startup banners
+    com.financialapigateway: INFO
+    org.apache.kafka: WARN
+    org.hibernate: WARN
