@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -30,8 +31,8 @@ public class Transaction {
     @Column(nullable = false)
     private String recipientId;
 
-    @Column(nullable = false)
-    private float amount;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal amount;
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private Status status;

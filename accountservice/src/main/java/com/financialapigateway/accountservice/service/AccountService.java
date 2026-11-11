@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -99,6 +100,10 @@ public class AccountService {
 
     private Status applyTransfer(TransactionEvent event) {
         log.debug("Applying transfer transactionId={}", event.getTransactionId());
+        if (event.getAmount() == null || event.getAmount().signum() <= 0) {
+            log.warn("Invalid amount for transactionId={}", event.getTransactionId());
+            return Status.FAILED;
+        }
         Optional<Account> senderAcc = this.accountRepository.findByAccountNumber(event.getSenderId());
         Optional<Account> receiverAcc = this.accountRepository.findByAccountNumber(event.getRecipientId());
 
@@ -110,13 +115,13 @@ public class AccountService {
         Account sender = senderAcc.get();
         Account receiver = receiverAcc.get();
 
-        if (sender.getBalance() < event.getAmount()) {
+        if (sender.getBalance().compareTo(event.getAmount()) < 0) {
             log.warn("Insufficient balance for transactionId={}", event.getTransactionId());
             return Status.FAILED;
         }
 
-        sender.setBalance(sender.getBalance() - event.getAmount());
-        receiver.setBalance(receiver.getBalance() + event.getAmount());
+        sender.setBalance(sender.getBalance().subtract(event.getAmount()));
+        receiver.setBalance(receiver.getBalance().add(event.getAmount()));
         this.accountRepository.save(sender);
         this.accountRepository.save(receiver);
         return Status.COMPLETE;
@@ -127,7 +132,7 @@ public class AccountService {
         Account account = new Account();
         account.setUserId(accountDto.getUserId());
         account.setAccountType(accountDto.getAccountType());
-        account.setBalance(0.00F);
+        account.setBalance(BigDecimal.ZERO);
         account.setAccountNumber(generateAccountNumber());
         account.setCreatedAt(LocalDateTime.now());
         return account;
