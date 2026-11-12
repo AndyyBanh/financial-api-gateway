@@ -118,12 +118,11 @@ public class FraudAlertService {
 
     private boolean isHighPercentage(TransactionEvent event) {
         AccountResponse sender = this.accountClient.getAccountByAccountNumber(event.getSenderId());
-        // amount >= 80% of balance, done as a multiplication so there's no rounding and no divide by zero.
-        // A $0 balance flags any amount above 0 (same as the old float version, where x / 0 was infinity).
+
         if (sender.getBalance().signum() == 0) {
             return event.getAmount().signum() > 0;
         }
-        return event.getAmount().compareTo(sender.getBalance().multiply(HIGH_PERCENTAGE)) >= 0;
+        return event.getAmount().compaclareTo(sender.getBalance().multiply(HIGH_PERCENTAGE)) >= 0;
     }
 
     /**
