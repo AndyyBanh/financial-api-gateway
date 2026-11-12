@@ -122,7 +122,7 @@ public class FraudAlertService {
         if (sender.getBalance().signum() == 0) {
             return event.getAmount().signum() > 0;
         }
-        return event.getAmount().compaclareTo(sender.getBalance().multiply(HIGH_PERCENTAGE)) >= 0;
+        return event.getAmount().compareTo(sender.getBalance().multiply(HIGH_PERCENTAGE)) >= 0;
     }
 
     /**
