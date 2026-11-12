@@ -5,7 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
+
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
@@ -22,9 +25,15 @@ public class TransactionResultProducer {
     }
 
 
-    public void send(TransactionResultEvent transactionResultEvent) {
+    /**
+     * Sends a transaction result to Kafka.
+     *
+     * @param transactionResultEvent
+     * @return completes when Kafka confirms the send, or fails if it doesn't
+     */
+    public CompletableFuture<SendResult<String, TransactionResultEvent>> send(TransactionResultEvent transactionResultEvent) {
         log.debug("Producing transaction result transactionId={} status={} topic={}", transactionResultEvent.getTransactionId(), transactionResultEvent.getStatus(), topic);
-        this.kafkaTemplate.send(topic, transactionResultEvent.getTransactionId().toString(), transactionResultEvent)
+        return this.kafkaTemplate.send(topic, transactionResultEvent.getTransactionId().toString(), transactionResultEvent)
                 .whenComplete((result, ex) ->  {
                     if (ex != null) {
                         log.error("Error sending transaction result transactionId={}", transactionResultEvent.getTransactionId(), ex);

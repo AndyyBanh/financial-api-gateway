@@ -1,23 +1,26 @@
 package com.financialapigateway.transactionservice.service;
 
 import com.financialapigateway.transactionservice.dto.TransactionDto;
+import com.financialapigateway.transactionservice.entity.OutboxEvent;
 import com.financialapigateway.transactionservice.entity.Transaction;
 import com.financialapigateway.transactionservice.enumeration.Status;
-import com.financialapigateway.transactionservice.event.TransactionEvent;
 import com.financialapigateway.transactionservice.event.TransactionResultEvent;
 import com.financialapigateway.transactionservice.exceptions.AccountNotFoundException;
 import com.financialapigateway.transactionservice.exceptions.InsufficientBalanceException;
 import com.financialapigateway.transactionservice.exceptions.InvalidAmountException;
 import com.financialapigateway.transactionservice.feignclient.AccountClient;
-import com.financialapigateway.transactionservice.kafka.TransactionProducer;
+import com.financialapigateway.transactionservice.repository.OutboxEventRepository;
 import com.financialapigateway.transactionservice.repository.TransactionRepository;
 import com.financialapigateway.transactionservice.response.AccountResponse;
 import feign.FeignException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -35,7 +38,10 @@ public class TransactionServiceTest {
     private TransactionRepository transactionRepository;
 
     @Mock
-    private TransactionProducer transactionProducer;
+    private OutboxEventRepository outboxEventRepository;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
 
     @Mock
     private AccountClient accountClient;
@@ -45,7 +51,8 @@ public class TransactionServiceTest {
     @BeforeEach
     void setUp() {
         // Same-thread executor so the async recipient lookup runs inline in tests
-        this.transactionService = new TransactionService(this.transactionRepository, this.transactionProducer, this.accountClient, Runnable::run);
+        this.transactionService = new TransactionService(this.transactionRepository, this.outboxEventRepository, this.accountClient,
+                new TransactionTemplate(this.transactionManager), Runnable::run);
     }
 
     @Test
@@ -107,9 +114,36 @@ public class TransactionServiceTest {
         this.transactionService.createTransaction(input);
 
         verify(this.transactionRepository).save(pendingTransactionFor(input));
-        verify(this.transactionProducer).send(pendingEventFor(input));
+        verify(this.outboxEventRepository).save(pendingOutboxEventFor(input));
     }
     
+    @Test
+    void shouldSaveTransactionAndOutboxEventInOneDbTransactionAfterLookups() {
+        TransactionDto input = new TransactionDto();
+        input.setSenderId("123");
+        input.setRecipientId("321");
+        input.setAmount(new BigDecimal("50"));
+
+        AccountResponse sender = new AccountResponse();
+        sender.setAccountNumber(input.getSenderId());
+        sender.setBalance(new BigDecimal("100"));
+        AccountResponse recipient = new AccountResponse();
+        recipient.setAccountNumber(input.getRecipientId());
+        recipient.setBalance(new BigDecimal("0"));
+
+        when(this.accountClient.getAccountByAccountNumber(input.getSenderId())).thenReturn(sender);
+        when(this.accountClient.getAccountByAccountNumber(input.getRecipientId())).thenReturn(recipient);
+
+        this.transactionService.createTransaction(input);
+
+        InOrder inOrder = inOrder(this.accountClient, this.transactionManager, this.transactionRepository, this.outboxEventRepository);
+        inOrder.verify(this.accountClient).getAccountByAccountNumber(input.getSenderId());
+        inOrder.verify(this.transactionManager).getTransaction(any());
+        inOrder.verify(this.transactionRepository).save(pendingTransactionFor(input));
+        inOrder.verify(this.outboxEventRepository).save(pendingOutboxEventFor(input));
+        inOrder.verify(this.transactionManager).commit(any());
+    }
+
     @Test
     void shouldRejectNegativeAmount() {
         assertAmountRejected(new BigDecimal("-50"), "amount must be greater than 0");
@@ -155,7 +189,7 @@ public class TransactionServiceTest {
         this.transactionService.createTransaction(input);
 
         verify(this.transactionRepository).save(pendingTransactionFor(input));
-        verify(this.transactionProducer).send(pendingEventFor(input));
+        verify(this.outboxEventRepository).save(pendingOutboxEventFor(input));
     }
 
     @Test
@@ -242,7 +276,7 @@ public class TransactionServiceTest {
         assertEquals(expectedMessage, ex.getMessage());
         verifyNoInteractions(this.accountClient);
         verify(this.transactionRepository, never()).save(any());
-        verify(this.transactionProducer, never()).send(any());
+        verify(this.outboxEventRepository, never()).save(any());
     }
 
     private static Transaction pendingTransactionFor(TransactionDto input) {
@@ -252,11 +286,11 @@ public class TransactionServiceTest {
                 && transaction.getStatus() == Status.PENDING);
     }
 
-    private static TransactionEvent pendingEventFor(TransactionDto input) {
-        return argThat(event -> event.getSenderId().equals(input.getSenderId())
-                && event.getRecipientId().equals(input.getRecipientId())
-                && event.getAmount().compareTo(input.getAmount()) == 0
-                && event.getStatus() == Status.PENDING);
+    private static OutboxEvent pendingOutboxEventFor(TransactionDto input) {
+        return argThat(outboxEvent -> outboxEvent.getSenderId().equals(input.getSenderId())
+                && outboxEvent.getRecipientId().equals(input.getRecipientId())
+                && outboxEvent.getAmount().compareTo(input.getAmount()) == 0
+                && outboxEvent.getStatus() == Status.PENDING);
     }
 
     private static Transaction transactionWith(UUID transactionId, Status status) {
