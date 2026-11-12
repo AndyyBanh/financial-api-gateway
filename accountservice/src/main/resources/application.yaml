@@ -8,6 +8,10 @@ general:
       max-retries: 3
       initial-interval: 1000
       multiplier: 2.0
+  outbox:
+    poll-interval-ms: 200
+    batch-size: 500
+    send-timeout-ms: 10000
 
 spring:
   application:
