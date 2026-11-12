@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -41,7 +42,7 @@ public class FraudAlertServiceTest {
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(fraudAlertService, "largeAmountThreshold", 10000f);
+        ReflectionTestUtils.setField(fraudAlertService, "largeAmountThreshold", new BigDecimal("10000"));
         ReflectionTestUtils.setField(fraudAlertService, "frequencyLimit", 10f);
         ReflectionTestUtils.setField(fraudAlertService, "frequencyWindow", 10);
     }
@@ -52,7 +53,7 @@ public class FraudAlertServiceTest {
         event.setTransactionId(UUID.randomUUID());
         event.setSenderId("123");
         event.setRecipientId("321");
-        event.setAmount(15000f);
+        event.setAmount(new BigDecimal("15000"));
 
         // event shouldn't be already flagged
         when(this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())).thenReturn(false);
@@ -69,10 +70,10 @@ public class FraudAlertServiceTest {
         event.setTransactionId(UUID.randomUUID());
         event.setSenderId("123");
         event.setRecipientId("321");
-        event.setAmount(90f);
+        event.setAmount(new BigDecimal("90"));
 
         AccountResponse sender = new AccountResponse();
-        sender.setBalance(100f); // 90 / 100 = 0.9 >= 0.8 will flag high percentage
+        sender.setBalance(new BigDecimal("100"));
 
         when(this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())).thenReturn(false);
         when(this.accountClient.getAccountByAccountNumber(event.getSenderId())).thenReturn(sender);
@@ -85,16 +86,56 @@ public class FraudAlertServiceTest {
     }
 
     @Test
+    void shouldFlagExactlyEightyPercentTransaction() {
+        TransactionEvent event = new TransactionEvent();
+        event.setTransactionId(UUID.randomUUID());
+        event.setSenderId("123");
+        event.setRecipientId("321");
+        event.setAmount(new BigDecimal("80.00"));
+
+        AccountResponse sender = new AccountResponse();
+        sender.setBalance(new BigDecimal("100.00"));
+
+        when(this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())).thenReturn(false);
+        when(this.accountClient.getAccountByAccountNumber(event.getSenderId())).thenReturn(sender);
+
+        this.fraudAlertService.processTransaction(event);
+
+        verify(this.fraudAlertRepository).save(alertWith(Reason.SUSPICIOUS_PATTERN, Severity.MEDIUM));
+        verifyNoInteractions(this.transactionClient);
+    }
+
+    @Test
+    void shouldFlagHighPercentageWhenSenderBalanceIsZero() {
+        TransactionEvent event = new TransactionEvent();
+        event.setTransactionId(UUID.randomUUID());
+        event.setSenderId("123");
+        event.setRecipientId("321");
+        event.setAmount(new BigDecimal("5"));
+
+        AccountResponse sender = new AccountResponse();
+        sender.setBalance(BigDecimal.ZERO);
+
+        when(this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())).thenReturn(false);
+        when(this.accountClient.getAccountByAccountNumber(event.getSenderId())).thenReturn(sender);
+
+        this.fraudAlertService.processTransaction(event);
+
+        verify(this.fraudAlertRepository).save(alertWith(Reason.SUSPICIOUS_PATTERN, Severity.MEDIUM));
+        verifyNoInteractions(this.transactionClient);
+    }
+
+    @Test
     void shouldFlagUnusualFrequenciesTransaction() {
         TransactionEvent event = new TransactionEvent();
         event.setTransactionId(UUID.randomUUID());
         event.setSenderId("123");
         event.setRecipientId("321");
-        event.setAmount(5f);
+        event.setAmount(new BigDecimal("5"));
         event.setCreatedAt(LocalDateTime.now());
 
         AccountResponse sender = new AccountResponse();
-        sender.setBalance(100f);
+        sender.setBalance(new BigDecimal("100"));
 
         LocalDateTime before = LocalDateTime.now();
         when(this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())).thenReturn(false);
@@ -117,10 +158,10 @@ public class FraudAlertServiceTest {
         event.setTransactionId(UUID.randomUUID());
         event.setSenderId("123");
         event.setRecipientId("321");
-        event.setAmount(5f);
+        event.setAmount(new BigDecimal("5"));
 
         AccountResponse sender = new AccountResponse();
-        sender.setBalance(1000f);
+        sender.setBalance(new BigDecimal("1000"));
 
         when(this.fraudAlertRepository.existsByTransactionId(event.getTransactionId())).thenReturn(false);
         when(this.accountClient.getAccountByAccountNumber(event.getSenderId())).thenReturn(sender);

@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -27,8 +28,8 @@ public class Account {
     @Column(unique = true, nullable = false)
     private String accountNumber;
 
-    @Column(nullable = false)
-    private float balance;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal balance;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)

@@ -7,6 +7,7 @@ import com.financialapigateway.transactionservice.event.TransactionEvent;
 import com.financialapigateway.transactionservice.event.TransactionResultEvent;
 import com.financialapigateway.transactionservice.exceptions.AccountNotFoundException;
 import com.financialapigateway.transactionservice.exceptions.InsufficientBalanceException;
+import com.financialapigateway.transactionservice.exceptions.InvalidAmountException;
 import com.financialapigateway.transactionservice.feignclient.AccountClient;
 import com.financialapigateway.transactionservice.kafka.TransactionProducer;
 import com.financialapigateway.transactionservice.repository.TransactionRepository;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,6 +53,7 @@ public class TransactionServiceTest {
         TransactionDto input = new TransactionDto();
         input.setSenderId("123");
         input.setRecipientId("321");
+        input.setAmount(new BigDecimal("50"));
 
         when(this.accountClient.getAccountByAccountNumber(input.getSenderId()))
                 .thenThrow(FeignException.NotFound.class);
@@ -67,11 +70,11 @@ public class TransactionServiceTest {
         TransactionDto input = new TransactionDto();
         input.setSenderId("123");
         input.setRecipientId("321");
-        input.setAmount(50f);
+        input.setAmount(new BigDecimal("50"));
 
         AccountResponse sender = new AccountResponse();
         sender.setAccountNumber(input.getSenderId());
-        sender.setBalance(0f);
+        sender.setBalance(new BigDecimal("0"));
         AccountResponse recipient = new AccountResponse();
         recipient.setAccountNumber(input.getRecipientId());
 
@@ -89,14 +92,14 @@ public class TransactionServiceTest {
         TransactionDto input = new TransactionDto();
         input.setSenderId("123");
         input.setRecipientId("321");
-        input.setAmount(50f);
+        input.setAmount(new BigDecimal("50"));
 
         AccountResponse sender = new AccountResponse();
         sender.setAccountNumber(input.getSenderId());
-        sender.setBalance(100f);
+        sender.setBalance(new BigDecimal("100"));
         AccountResponse recipient = new AccountResponse();
         recipient.setAccountNumber(input.getRecipientId());
-        recipient.setBalance(0f);
+        recipient.setBalance(new BigDecimal("0"));
 
         when(this.accountClient.getAccountByAccountNumber(input.getSenderId())).thenReturn(sender);
         when(this.accountClient.getAccountByAccountNumber(input.getRecipientId())).thenReturn(recipient);
@@ -107,6 +110,54 @@ public class TransactionServiceTest {
         verify(this.transactionProducer).send(pendingEventFor(input));
     }
     
+    @Test
+    void shouldRejectNegativeAmount() {
+        assertAmountRejected(new BigDecimal("-50"), "amount must be greater than 0");
+    }
+
+    @Test
+    void shouldRejectZeroAmount() {
+        assertAmountRejected(new BigDecimal("0"), "amount must be greater than 0");
+    }
+
+    @Test
+    void shouldRejectMissingAmount() {
+        assertAmountRejected(null, "amount is required");
+    }
+
+    @Test
+    void shouldRejectMoreThanTwoDecimalPlaces() {
+        assertAmountRejected(new BigDecimal("0.005"), "amount must have at most 2 decimal places");
+    }
+
+    @Test
+    void shouldRejectAmountTooLarge() {
+        assertAmountRejected(new BigDecimal("123456789012345678"), "amount is too large");
+    }
+
+    @Test
+    void shouldAcceptAmountWithTrailingZero() {
+        TransactionDto input = new TransactionDto();
+        input.setSenderId("123");
+        input.setRecipientId("321");
+        input.setAmount(new BigDecimal("50.10"));
+
+        AccountResponse sender = new AccountResponse();
+        sender.setAccountNumber(input.getSenderId());
+        sender.setBalance(new BigDecimal("100"));
+        AccountResponse recipient = new AccountResponse();
+        recipient.setAccountNumber(input.getRecipientId());
+        recipient.setBalance(new BigDecimal("0"));
+
+        when(this.accountClient.getAccountByAccountNumber(input.getSenderId())).thenReturn(sender);
+        when(this.accountClient.getAccountByAccountNumber(input.getRecipientId())).thenReturn(recipient);
+
+        this.transactionService.createTransaction(input);
+
+        verify(this.transactionRepository).save(pendingTransactionFor(input));
+        verify(this.transactionProducer).send(pendingEventFor(input));
+    }
+
     @Test
     void shouldNotUpdateTransaction() {
         TransactionResultEvent event = new TransactionResultEvent();
@@ -160,6 +211,7 @@ public class TransactionServiceTest {
         TransactionDto input = new TransactionDto();
         input.setSenderId("123");
         input.setRecipientId("321");
+        input.setAmount(new BigDecimal("50"));
 
         when(this.accountClient.getAccountByAccountNumber(input.getSenderId())).thenReturn(new AccountResponse());
         when(this.accountClient.getAccountByAccountNumber(input.getRecipientId()))
@@ -178,17 +230,32 @@ public class TransactionServiceTest {
         assertEquals(7L, this.transactionService.countSentTransactionsSince("123", since));
     }
 
+    private void assertAmountRejected(BigDecimal amount, String expectedMessage) {
+        TransactionDto input = new TransactionDto();
+        input.setSenderId("123");
+        input.setRecipientId("321");
+        input.setAmount(amount);
+
+        InvalidAmountException ex = assertThrows(InvalidAmountException.class,
+                () -> this.transactionService.createTransaction(input));
+
+        assertEquals(expectedMessage, ex.getMessage());
+        verifyNoInteractions(this.accountClient);
+        verify(this.transactionRepository, never()).save(any());
+        verify(this.transactionProducer, never()).send(any());
+    }
+
     private static Transaction pendingTransactionFor(TransactionDto input) {
         return argThat(transaction -> transaction.getSenderId().equals(input.getSenderId())
                 && transaction.getRecipientId().equals(input.getRecipientId())
-                && transaction.getAmount() == input.getAmount()
+                && transaction.getAmount().compareTo(input.getAmount()) == 0
                 && transaction.getStatus() == Status.PENDING);
     }
 
     private static TransactionEvent pendingEventFor(TransactionDto input) {
         return argThat(event -> event.getSenderId().equals(input.getSenderId())
                 && event.getRecipientId().equals(input.getRecipientId())
-                && event.getAmount() == input.getAmount()
+                && event.getAmount().compareTo(input.getAmount()) == 0
                 && event.getStatus() == Status.PENDING);
     }
 

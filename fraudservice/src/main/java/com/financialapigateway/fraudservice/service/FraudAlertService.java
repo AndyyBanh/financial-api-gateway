@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -86,7 +87,9 @@ public class FraudAlertService {
     }
 
     @Value("${fraud.large-amount-threshold}")
-    private float largeAmountThreshold;
+    private BigDecimal largeAmountThreshold;
+
+    private static final BigDecimal HIGH_PERCENTAGE = new BigDecimal("0.80");
 
     @Value("${fraud.frequency-limit}")
     private float frequencyLimit;
@@ -108,15 +111,18 @@ public class FraudAlertService {
         return null;
     }
 
-    private boolean isLargeAmount(float amount) {
-        return amount > this.largeAmountThreshold;
+    private boolean isLargeAmount(BigDecimal amount) {
+        return amount.compareTo(this.largeAmountThreshold) > 0;
     }
 
 
     private boolean isHighPercentage(TransactionEvent event) {
         AccountResponse sender = this.accountClient.getAccountByAccountNumber(event.getSenderId());
-        float percentage = event.getAmount() / sender.getBalance();
-        return percentage >= 0.80f;
+
+        if (sender.getBalance().signum() == 0) {
+            return event.getAmount().signum() > 0;
+        }
+        return event.getAmount().compaclareTo(sender.getBalance().multiply(HIGH_PERCENTAGE)) >= 0;
     }
 
     /**

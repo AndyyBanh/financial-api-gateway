@@ -7,6 +7,7 @@ import com.financialapigateway.transactionservice.event.TransactionEvent;
 import com.financialapigateway.transactionservice.event.TransactionResultEvent;
 import com.financialapigateway.transactionservice.exceptions.AccountNotFoundException;
 import com.financialapigateway.transactionservice.exceptions.InsufficientBalanceException;
+import com.financialapigateway.transactionservice.exceptions.InvalidAmountException;
 import com.financialapigateway.transactionservice.exceptions.TransactionNotFoundException;
 import com.financialapigateway.transactionservice.feignclient.AccountClient;
 import com.financialapigateway.transactionservice.kafka.TransactionProducer;
@@ -19,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -46,8 +48,36 @@ public class TransactionService {
         this.accountLookupExecutor = accountLookupExecutor;
     }
 
+    /**
+     * Rejects amounts that are missing, zero or negative, have more than 2 decimal places,
+     * or are too large for the NUMERIC(19,2) column.
+     *
+     * @param amount the requested transfer amount
+     */
+    private void validateAmount(BigDecimal amount) {
+        if (amount == null) {
+            log.warn("Rejected new transaction: amount is missing");
+            throw new InvalidAmountException("amount is required");
+        }
+        if (amount.signum() <= 0) {
+            log.warn("Rejected new transaction: amount is not greater than 0");
+            throw new InvalidAmountException("amount must be greater than 0");
+        }
+        // stripTrailingZeros so 50.10 or 50.100 count as 2 decimal places, but 0.005 doesn't
+        if (amount.stripTrailingZeros().scale() > 2) {
+            log.warn("Rejected new transaction: amount has more than 2 decimal places");
+            throw new InvalidAmountException("amount must have at most 2 decimal places");
+        }
+        // digits before the decimal point must fit NUMERIC(19,2), which allows 17
+        if (amount.precision() - amount.scale() > 17) {
+            log.warn("Rejected new transaction: amount is too large");
+            throw new InvalidAmountException("amount is too large");
+        }
+    }
+
     public TransactionResponse createTransaction(TransactionDto input) {
         log.debug("Creating transaction");
+        validateAmount(input.getAmount());
         AccountResponse sender;
         AccountResponse receiver;
         // Recipient lookup runs on another thread while this thread looks up the sender
@@ -60,7 +90,7 @@ public class TransactionService {
             log.warn("Sender or recipient account not found for new transaction");
             throw new AccountNotFoundException("Account not found");
         }
-        if (sender.getBalance() < input.getAmount()) {
+        if (sender.getBalance().compareTo(input.getAmount()) < 0) {
             log.warn("Insufficient balance for new transaction senderAccountId={}", sender.getAccountId());
             throw new InsufficientBalanceException("Sender account balance is insufficient");
         }

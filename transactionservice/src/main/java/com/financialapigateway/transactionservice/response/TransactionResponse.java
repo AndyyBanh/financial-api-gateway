@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -16,6 +17,6 @@ public class TransactionResponse {
     private Status status;
     private String sender;
     private String recipient;
-    private float amount;
+    private BigDecimal amount;
     private LocalDateTime creationDate;
 }
