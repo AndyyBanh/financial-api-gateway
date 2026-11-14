@@ -1,10 +1,12 @@
 package com.financialapigateway.accountservice.service;
 
 import com.financialapigateway.accountservice.entity.Account;
+import com.financialapigateway.accountservice.entity.OutboxEvent;
 import com.financialapigateway.accountservice.entity.ProcessedTransaction;
 import com.financialapigateway.accountservice.enumeration.Status;
 import com.financialapigateway.accountservice.event.TransactionEvent;
 import com.financialapigateway.accountservice.repository.AccountRepository;
+import com.financialapigateway.accountservice.repository.OutboxEventRepository;
 import com.financialapigateway.accountservice.repository.ProcessedTransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +30,9 @@ public class AccountServiceTest {
 
     @Mock
     private ProcessedTransactionRepository processedTransactionRepository;
+
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
 
     @InjectMocks
     private AccountService accountService;
@@ -170,7 +175,67 @@ public class AccountServiceTest {
         verify(this.processedTransactionRepository, never()).save(any());
     }
 
+    @Test
+    void shouldSaveOutboxEventWithCompleteStatus() {
+        TransactionEvent event = new TransactionEvent();
+        event.setTransactionId(UUID.randomUUID());
+        event.setSenderId("123");
+        event.setRecipientId("321");
+        event.setAmount(new BigDecimal("50"));
+
+        Account sender = new Account();
+        sender.setAccountNumber(event.getSenderId());
+        sender.setBalance(new BigDecimal("100"));
+
+        Account receiver = new Account();
+        receiver.setAccountNumber(event.getRecipientId());
+        receiver.setBalance(new BigDecimal("0"));
+
+        when(this.accountRepository.findByAccountNumber(event.getSenderId())).thenReturn(Optional.of(sender));
+        when(this.accountRepository.findByAccountNumber(event.getRecipientId())).thenReturn(Optional.of(receiver));
+
+        this.accountService.processTransaction(event);
+
+        verify(this.outboxEventRepository).save(outboxEventWith(event.getTransactionId(), Status.COMPLETE));
+    }
+
+    @Test
+    void shouldSaveOutboxEventWithFailedStatus() {
+        TransactionEvent event = new TransactionEvent();
+        event.setTransactionId(UUID.randomUUID());
+        event.setSenderId("123");
+        event.setRecipientId("321");
+        event.setAmount(new BigDecimal("50"));
+
+        when(this.accountRepository.findByAccountNumber(event.getSenderId())).thenReturn(Optional.empty());
+        when(this.accountRepository.findByAccountNumber(event.getRecipientId())).thenReturn(Optional.empty());
+
+        this.accountService.processTransaction(event);
+
+        verify(this.outboxEventRepository).save(outboxEventWith(event.getTransactionId(), Status.FAILED));
+    }
+
+    @Test
+    void shouldNotSaveOutboxEventForAlreadyProcessedTransaction() {
+        TransactionEvent event = new TransactionEvent();
+        event.setTransactionId(UUID.randomUUID());
+        event.setSenderId("123");
+        event.setRecipientId("321");
+        event.setAmount(new BigDecimal("50"));
+
+        when(this.processedTransactionRepository.findById(event.getTransactionId()))
+                .thenReturn(Optional.of(new ProcessedTransaction(event.getTransactionId(), Status.COMPLETE)));
+
+        this.accountService.processTransaction(event);
+
+        verify(this.outboxEventRepository, never()).save(any());
+    }
+
     private static Account accountWith(String accountNumber, BigDecimal balance) {
         return argThat(account -> account.getAccountNumber().equals(accountNumber) && account.getBalance().compareTo(balance) == 0);
+    }
+
+    private static OutboxEvent outboxEventWith(UUID transactionId, Status status) {
+        return argThat(outbox -> outbox.getTransactionId().equals(transactionId) && outbox.getStatus() == status && outbox.getCreatedAt() != null);
     }
 }

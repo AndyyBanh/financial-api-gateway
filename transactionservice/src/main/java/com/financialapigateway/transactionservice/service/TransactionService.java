@@ -1,16 +1,16 @@
 package com.financialapigateway.transactionservice.service;
 
 import com.financialapigateway.transactionservice.dto.TransactionDto;
+import com.financialapigateway.transactionservice.entity.OutboxEvent;
 import com.financialapigateway.transactionservice.entity.Transaction;
 import com.financialapigateway.transactionservice.enumeration.Status;
-import com.financialapigateway.transactionservice.event.TransactionEvent;
 import com.financialapigateway.transactionservice.event.TransactionResultEvent;
 import com.financialapigateway.transactionservice.exceptions.AccountNotFoundException;
 import com.financialapigateway.transactionservice.exceptions.InsufficientBalanceException;
 import com.financialapigateway.transactionservice.exceptions.InvalidAmountException;
 import com.financialapigateway.transactionservice.exceptions.TransactionNotFoundException;
 import com.financialapigateway.transactionservice.feignclient.AccountClient;
-import com.financialapigateway.transactionservice.kafka.TransactionProducer;
+import com.financialapigateway.transactionservice.repository.OutboxEventRepository;
 import com.financialapigateway.transactionservice.repository.TransactionRepository;
 import com.financialapigateway.transactionservice.response.AccountResponse;
 import com.financialapigateway.transactionservice.response.TransactionResponse;
@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -35,16 +36,18 @@ import java.util.stream.Collectors;
 public class TransactionService {
 
     private final TransactionRepository transactionRepository;
-    private final TransactionProducer transactionProducer;
+    private final OutboxEventRepository outboxEventRepository;
     private final AccountClient accountClient;
+    private final TransactionTemplate transactionTemplate;
     private final Executor accountLookupExecutor;
 
     @Autowired
-    public TransactionService(TransactionRepository transactionRepository,  TransactionProducer transactionProducer, AccountClient accountClient,
-                              @Qualifier("accountLookupExecutor") Executor accountLookupExecutor) {
+    public TransactionService(TransactionRepository transactionRepository, OutboxEventRepository outboxEventRepository, AccountClient accountClient,
+                              TransactionTemplate transactionTemplate, @Qualifier("accountLookupExecutor") Executor accountLookupExecutor) {
         this.transactionRepository = transactionRepository;
-        this.transactionProducer = transactionProducer;
+        this.outboxEventRepository = outboxEventRepository;
         this.accountClient = accountClient;
+        this.transactionTemplate = transactionTemplate;
         this.accountLookupExecutor = accountLookupExecutor;
     }
 
@@ -75,6 +78,16 @@ public class TransactionService {
         }
     }
 
+    /**
+     * Validates and saves a new PENDING transaction.
+     * <p>
+     * The transaction and its outbox row are saved in one DB transaction, and OutboxRelay sends the
+     * event to Kafka. The account lookups run before that DB transaction starts, so no DB connection
+     * is held while waiting on the Account Service.
+     *
+     * @param input
+     * @return the saved transaction, still PENDING
+     */
     public TransactionResponse createTransaction(TransactionDto input) {
         log.debug("Creating transaction");
         validateAmount(input.getAmount());
@@ -96,9 +109,10 @@ public class TransactionService {
         }
 
         Transaction transaction = mapToEntity(input);
-        this.transactionRepository.save(transaction);
-        TransactionEvent transactionEvent = mapToEvent(transaction);
-        this.transactionProducer.send(transactionEvent);
+        this.transactionTemplate.executeWithoutResult(status -> {
+            this.transactionRepository.save(transaction);
+            this.outboxEventRepository.save(mapToOutboxEvent(transaction));
+        });
         return mapToResponse(transaction);
     }
 
@@ -198,14 +212,14 @@ public class TransactionService {
         return response;
     }
 
-    private TransactionEvent mapToEvent(Transaction input) {
-        TransactionEvent event = new TransactionEvent();
-        event.setTransactionId(input.getTransactionId());
-        event.setAmount(input.getAmount());
-        event.setSenderId(input.getSenderId());
-        event.setRecipientId(input.getRecipientId());
-        event.setCreatedAt(input.getCreatedAt());
-        event.setStatus(input.getStatus());
-        return event;
+    private OutboxEvent mapToOutboxEvent(Transaction input) {
+        OutboxEvent outboxEvent = new OutboxEvent();
+        outboxEvent.setTransactionId(input.getTransactionId());
+        outboxEvent.setAmount(input.getAmount());
+        outboxEvent.setSenderId(input.getSenderId());
+        outboxEvent.setRecipientId(input.getRecipientId());
+        outboxEvent.setCreatedAt(input.getCreatedAt());
+        outboxEvent.setStatus(input.getStatus());
+        return outboxEvent;
     }
 }

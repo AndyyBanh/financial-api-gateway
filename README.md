@@ -8,6 +8,7 @@ Took inspiration after completing J.P. Morgan simulation and decided to expand o
 ## Table of Contents
 - [Overview](#overview)
 - [Architecture](#architecture)
+- [Resilience](#resilience)
 - [Tech Stack](#tech-stack)
 - [Getting Started](#getting-started)
 - [Testing](#testing)
@@ -34,17 +35,24 @@ Client → Gateway (rate limit filter → JWT auth filter → routing) → downs
 
 **Transaction flow (asynchronous, event-driven):**
 ```
-POST /transactions → Transaction Service checks both accounts (Feign) → saves PENDING
-    → publishes TransactionEvent to "transactions"
-        → Account Service (account-group) → moves the money, at most once per transaction
-            → publishes TransactionResultEvent to "transaction-results"
+POST /transactions → Transaction Service checks both accounts (Feign) → saves PENDING + outbox event
+    → TransactionEvent published to "transactions"
+        → Account Service (account-group) → moves the money, at most once per transaction → saves result + outbox event
+            → TransactionResultEvent published to "transaction-results"
                 → Transaction Service (transaction-group) → sets COMPLETE or FAILED
         → Fraud Service (fraud-group) → checks fraud rules (calls Account and Transaction services)
             → saves a FraudAlert if flagged
-Failed events are retried, then sent to "transactions-dlt" / "transaction-results-dlt".
+Failed events are retried, then sent to a dead-letter topic (see Resilience).
 ```
 
 Each consumer group reads the same topic independently (Account Service and Fraud Service both receive every transaction event, but are responsible for different things)
+
+## Resilience
+
+- **Transactional outbox:** Saving to the database and sending to Kafka are two separate steps, so a crash in between could lose an event or send one for data that was never saved. Instead, each service saves its data and the event together in one database transaction, and a background job sends saved events to Kafka. If Kafka is down, events wait in the database and go out once it's back.
+- **Retries with backoff:** If a consumer fails to handle an event, it tries again a few times, waiting longer each time, so short outages (like a service restarting) fix themselves. Errors that a retry can't fix, like a malformed message, skip straight to the dead-letter topic.
+- **Dead-letter topics:** Events that still fail after retrying are set aside in a separate topic instead of blocking the ones behind them, so they can be inspected and replayed by hand. If the Account Service gives up on a transaction, it marks it FAILED so it doesn't stay PENDING forever.
+- **Safe duplicates:** The outbox and retries can deliver the same event more than once. Every consumer recognizes a repeat and ignores it, so money only moves once and a status can't be overwritten.
 
 ## Tech Stack
 
@@ -150,3 +158,4 @@ Load tested `POST /api/v1/transactions` through the gateway with k6, at fixed re
 - **Rule-based fraud detection:** three simple rules, not ML.
 - **One Kafka broker, one partition per topic:** fine locally, but it limits throughput (the Fraud Service can't scale out) and has no failover.
 - **No dead-letter consumer:** failed events are retried, then parked in a DLT for manual replay.
+- **One instance per service:** the outbox job assumes a single copy of each service. Two copies would both send the same events. That's still safe because duplicates are ignored, but it's wasted work.

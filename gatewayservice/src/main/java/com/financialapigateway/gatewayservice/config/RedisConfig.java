@@ -36,7 +36,7 @@ public class RedisConfig {
     }
 
     /**
-     * Per-IP limit, read from {@code rate-limit.*} in application.yaml (default 5 requests per 5 minutes).
+     * Per-IP limit, read from {@code rate-limit.*} in application.yaml (default 100 requests per minute).
      * The load-test compose override raises it so k6 isn't throttled; the limiter still runs on every request.
      */
     @Bean

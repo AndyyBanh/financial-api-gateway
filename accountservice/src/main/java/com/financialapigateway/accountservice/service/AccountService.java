@@ -6,7 +6,9 @@ import com.financialapigateway.accountservice.entity.ProcessedTransaction;
 import com.financialapigateway.accountservice.enumeration.Status;
 import com.financialapigateway.accountservice.event.TransactionEvent;
 import com.financialapigateway.accountservice.exceptions.AccountNotFoundException;
+import com.financialapigateway.accountservice.entity.OutboxEvent;
 import com.financialapigateway.accountservice.repository.AccountRepository;
+import com.financialapigateway.accountservice.repository.OutboxEventRepository;
 import com.financialapigateway.accountservice.repository.ProcessedTransactionRepository;
 import com.financialapigateway.accountservice.response.AccountResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -30,10 +32,14 @@ public class AccountService {
 
     private final ProcessedTransactionRepository processedTransactionRepository;
 
+    private final OutboxEventRepository outboxEventRepository;
+
     @Autowired
-    public AccountService(AccountRepository accountRepository, ProcessedTransactionRepository processedTransactionRepository) {
+    public AccountService(AccountRepository accountRepository, ProcessedTransactionRepository processedTransactionRepository,
+                          OutboxEventRepository outboxEventRepository) {
         this.accountRepository = accountRepository;
         this.processedTransactionRepository = processedTransactionRepository;
+        this.outboxEventRepository = outboxEventRepository;
     }
 
     public AccountResponse createAccount(AccountDto input) {
@@ -78,7 +84,9 @@ public class AccountService {
     /**
      * Moves money for a transaction, at most once per transactionId.
      * <p>
-     * Errors are left to the Kafka error handler. A repeated event returns the saved result.
+     * The result is saved to the outbox in the same DB transaction, and OutboxRelay sends it to Kafka.
+     * Errors are left to the Kafka error handler. A repeated event returns the saved result without
+     * adding another outbox row, since the first one already guarantees the result is sent.
      *
      * @param event
      * @return COMPLETE, or FAILED if an account is missing or the balance is too low
@@ -94,6 +102,7 @@ public class AccountService {
 
         Status status = applyTransfer(event);
         this.processedTransactionRepository.save(new ProcessedTransaction(event.getTransactionId(), status));
+        this.outboxEventRepository.save(new OutboxEvent(null, event.getTransactionId(), status, LocalDateTime.now()));
         log.info("Transaction processed transactionId={} status={}", event.getTransactionId(), status);
         return status;
     }

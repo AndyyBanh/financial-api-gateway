@@ -41,9 +41,9 @@ spring:
 
 
 rate-limit:
-  capacity: ${RATE_LIMIT_CAPACITY:5}
-  refill-tokens: ${RATE_LIMIT_REFILL_TOKENS:5}
-  refill-period: ${RATE_LIMIT_REFILL_PERIOD:5m}
+  capacity: ${RATE_LIMIT_CAPACITY:100}
+  refill-tokens: ${RATE_LIMIT_REFILL_TOKENS:100}
+  refill-period: ${RATE_LIMIT_REFILL_PERIOD:1m}
 
 server:
   port: 8080
